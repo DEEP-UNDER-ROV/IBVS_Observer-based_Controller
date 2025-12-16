@@ -9,9 +9,16 @@ import math
 import pyrealsense2 as rs
 
 from pupil_apriltags import Detector
-
 from geometry_msgs.msg import PoseStamped
-from sensor_msgs.msg import Range
+
+
+# =========================
+# QGC VIDEO SETTINGS
+# =========================
+QGC_IP = "192.168.4.1"
+QGC_PORT = 5600
+VIDEO_FPS = 30
+VIDEO_SIZE = (640, 480)
 
 
 class AprilTagPnPVision(Node):
@@ -19,51 +26,72 @@ class AprilTagPnPVision(Node):
     def __init__(self):
         super().__init__('apriltag_pnp_vision')
 
-        # ===============================
-        # Publishers
-        # ===============================
+        # ======================================================
+        # MAVROS Vision Pose publisher
+        # ======================================================
         self.vision_pub = self.create_publisher(
             PoseStamped,
             '/mavros/vision_pose/pose',
             10
         )
 
-        self.depth_pub = self.create_publisher(
-            Range,
-            '/mavros/distance_sensor/depth',
-            10
+        # ======================================================
+        # GStreamer → QGC (UDP H.264)
+        # ======================================================
+        gst_pipeline = (
+            "appsrc ! videoconvert ! "
+            "x264enc tune=zerolatency bitrate=500 speed-preset=ultrafast ! "
+            "rtph264pay config-interval=1 pt=96 ! "
+            f"udpsink host={QGC_IP} port={QGC_PORT}"
         )
 
-        # ===============================
+        self.video = cv2.VideoWriter(
+            gst_pipeline,
+            cv2.CAP_GSTREAMER,
+            0,
+            VIDEO_FPS,
+            VIDEO_SIZE,
+            True
+        )
+
+        if not self.video.isOpened():
+            self.get_logger().error("Failed to open GStreamer video stream")
+        else:
+            self.get_logger().info(
+                f"Streaming video to QGC at {QGC_IP}:{QGC_PORT}"
+            )
+
+        # ======================================================
         # RealSense pipeline (COLOR ONLY)
-        # ===============================
+        # ======================================================
         self.pipeline = rs.pipeline()
         config = rs.config()
-        config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+        config.enable_stream(
+            rs.stream.color,
+            VIDEO_SIZE[0],
+            VIDEO_SIZE[1],
+            rs.format.bgr8,
+            VIDEO_FPS
+        )
         profile = self.pipeline.start(config)
 
-        # ===============================
+        # ======================================================
         # Camera intrinsics
-        # ===============================
+        # ======================================================
         color_stream = profile.get_stream(rs.stream.color)
         intr = color_stream.as_video_stream_profile().get_intrinsics()
 
-        self.fx = intr.fx
-        self.fy = intr.fy
-        self.cx = intr.ppx
-        self.cy = intr.ppy
-
         self.camera_matrix = np.array([
-            [self.fx, 0, self.cx],
-            [0, self.fy, self.cy],
-            [0, 0, 1]
+            [intr.fx, 0.0, intr.ppx],
+            [0.0, intr.fy, intr.ppy],
+            [0.0, 0.0, 1.0]
         ], dtype=np.float32)
 
-        self.dist_coeffs = np.zeros((4, 1))
+        self.dist_coeffs = np.zeros((4, 1), dtype=np.float32)
 
-        # ===============================
+        # ======================================================
         # AprilTag detector
-        # ===============================
+        # ======================================================
         self.detector = Detector(
             families="tag36h11",
             nthreads=2,
@@ -72,40 +100,50 @@ class AprilTagPnPVision(Node):
             refine_edges=True,
         )
 
-        # ===============================
+        # ======================================================
         # Tag geometry (meters)
-        # ===============================
-        self.tag_size = 0.16
+        # ======================================================
+        self.tag_size = 0.16  # <-- SET YOUR TAG SIZE
         s = self.tag_size / 2.0
 
         self.object_points = np.array([
-            [-s, -s, 0],
-            [ s, -s, 0],
-            [ s,  s, 0],
-            [-s,  s, 0],
+            [-s, -s, 0.0],
+            [ s, -s, 0.0],
+            [ s,  s, 0.0],
+            [-s,  s, 0.0],
         ], dtype=np.float32)
 
-        # ===============================
+        # ======================================================
         # Timer (20 Hz)
-        # ===============================
+        # ======================================================
         self.timer = self.create_timer(0.05, self.loop)
 
-        self.get_logger().info("AprilTag PnP Vision + Depth node started")
+        self.get_logger().info(
+            "AprilTag PnP vision + UDP video streaming started"
+        )
 
-    # ============================================================
+    # ==========================================================
     def loop(self):
         frames = self.pipeline.wait_for_frames()
         color_frame = frames.get_color_frame()
         if not color_frame:
             return
 
-        color = np.asanyarray(color_frame.get_data())
-        gray = cv2.cvtColor(color, cv2.COLOR_BGR2GRAY)
+        frame = np.asanyarray(color_frame.get_data())
 
+        # ======================================================
+        # Stream raw video to QGC
+        # ======================================================
+        if self.video.isOpened():
+            self.video.write(frame)
+
+        # ======================================================
+        # AprilTag detection
+        # ======================================================
+        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         detections = self.detector.detect(gray)
 
         if len(detections) == 0:
-            self.show_view(color, None)
             return
 
         tag = detections[0]
@@ -120,37 +158,35 @@ class AprilTagPnPVision(Node):
         )
 
         if not success:
-            self.show_view(color, None)
             return
 
-        # ========================================================
-        # Translation (OpenCV camera frame)
+        # ======================================================
+        # OpenCV camera frame:
         # X right, Y down, Z forward
-        # ========================================================
-        z_cam = float(tvec[2][0])   # forward distance (meters)
+        # ======================================================
+        z_cam = float(tvec[2][0])
         x_cam = float(tvec[0][0])
         y_cam = float(tvec[1][0])
 
-        # ========================================================
+        # ======================================================
         # Convert to MAVROS ENU
         # ENU: X forward, Y right, Z down
-        # ========================================================
+        # ======================================================
         x = z_cam
         y = x_cam
         z = y_cam
 
-        # ========================================================
+        # ======================================================
         # Orientation
-        # ========================================================
+        # ======================================================
         R, _ = cv2.Rodrigues(rvec)
-
         yaw = math.atan2(R[1, 0], R[0, 0])
         pitch = math.asin(-R[2, 0])
         roll = math.atan2(R[2, 1], R[2, 2])
 
-        # ========================================================
+        # ======================================================
         # Publish vision pose
-        # ========================================================
+        # ======================================================
         pose = PoseStamped()
         pose.header.stamp = self.get_clock().now().to_msg()
         pose.header.frame_id = "map"
@@ -167,27 +203,9 @@ class AprilTagPnPVision(Node):
 
         self.vision_pub.publish(pose)
 
-        # ========================================================
-        # Publish DEPTH SENSOR (this unlocks GUIDED)
-        # MUST be POSITIVE meters
-        # ========================================================
-        depth = Range()
-        depth.header.stamp = pose.header.stamp
-        depth.header.frame_id = "base_link"
-
-        depth.radiation_type = Range.INFRARED
-        depth.field_of_view = 0.1
-        depth.min_range = 0.2
-        depth.max_range = 10.0
-
-        depth.range = np.clip(abs(z_cam), 0.3, 10.0)
-
-        self.depth_pub.publish(depth)
-
-        self.show_view(color, tag)
-
-    # ============================================================
-    def euler_to_quaternion(self, roll, pitch, yaw):
+    # ==========================================================
+    @staticmethod
+    def euler_to_quaternion(roll, pitch, yaw):
         cy = math.cos(yaw * 0.5)
         sy = math.sin(yaw * 0.5)
         cp = math.cos(pitch * 0.5)
@@ -202,31 +220,13 @@ class AprilTagPnPVision(Node):
             cr * cp * cy + sr * sp * sy
         )
 
-    # ============================================================
-    def show_view(self, image, tag):
-        if tag is not None:
-            corners = tag.corners.astype(int)
-            for i in range(4):
-                cv2.line(
-                    image,
-                    tuple(corners[i]),
-                    tuple(corners[(i + 1) % 4]),
-                    (0, 255, 0),
-                    2
-                )
-            c = tuple(tag.center.astype(int))
-            cv2.circle(image, c, 5, (0, 0, 255), -1)
-
-        cv2.imshow("AprilTag PnP + Depth", image)
-        cv2.waitKey(1)
-
 
 def main():
     rclpy.init()
     node = AprilTagPnPVision()
     rclpy.spin(node)
+    node.video.release()
     node.destroy_node()
-    cv2.destroyAllWindows()
     rclpy.shutdown()
 
 
