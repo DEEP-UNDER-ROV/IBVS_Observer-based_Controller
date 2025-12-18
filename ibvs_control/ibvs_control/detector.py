@@ -115,7 +115,7 @@ class AprilTagUnifiedNode(Node):
             dist_coeffs = np.array(DIST_COEFFS)
             pts_reshaped = raw_pts.reshape(-1, 1, 2)
             undistorted_pts = cv2.undistortPoints(pts_reshaped, camera_matrix, dist_coeffs, R=None, P=camera_matrix)
-            tag_pts_to_publish = undistorted_pts.reshape(-1, 2)
+            tag_pts_to_publish = raw_pts
 
             # Publish corners for the IBVS node
             poly_msg = PolygonStamped()
