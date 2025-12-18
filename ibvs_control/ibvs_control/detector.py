@@ -131,6 +131,18 @@ class AprilTagUnifiedNode(Node):
         
         # Use polylines for the red box (cleaner and avoids manual indexing)
         cv2.polylines(stream_frame, [desired_scaled], True, (0, 0, 255), 2)
+        
+        for i, (x, y) in enumerate(desired_scaled):
+            cv2.circle(stream_frame, (int(x), int(y)), 4, (0, 0, 255), -1)
+            cv2.putText(
+                stream_frame,
+                f"D{i+1}",
+                (int(x) + 5, int(y) - 5),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 0, 255),
+                1
+            )
 
         # Draw scaled tag
         if detections:
