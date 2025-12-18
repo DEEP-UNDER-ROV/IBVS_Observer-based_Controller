@@ -87,10 +87,14 @@ class IBVSControllerNode(Node):
             L = self.interaction_matrix(u, v, Z)
             rows.append(L)
 
-            # Error = current - desired
-            errs.extend([u - self.desired_pts[i, 0],
-                         v - self.desired_pts[i, 1],
-                         Z - Z_DES])
+        # Normalize the current point and the desired point
+        curr_x = (u - CX) / FX
+        curr_y = (v - CY) / FY
+        des_x = (self.desired_pts[i, 0] - CX) / FX
+        des_y = (self.desired_pts[i, 1] - CY) / FY
+        
+        # Error in normalized coordinates
+        errs.extend([curr_x - des_x, curr_y - des_y, Z - Z_DES])
 
         Ls = np.vstack(rows)
         e = np.array(errs).reshape(-1, 1)
@@ -147,8 +151,6 @@ class IBVSControllerNode(Node):
         cmd.angular.z = wz  # Yawing correction
 
         self.vel_pub.publish(cmd)
-
-        self.video.write(color)
 
         # Terminal Print (Limited for readability)
         print(f"CMD -> Vb: [{vx:+.2f}, {vy:+.2f}, {vz:+.2f}] Wb: [{wx:+.2f}, {wy:+.2f}, {wz:+.2f}]")
