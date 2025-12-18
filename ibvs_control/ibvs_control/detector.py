@@ -7,7 +7,7 @@ import pyrealsense2 as rs
 from cv_bridge import CvBridge
 from pupil_apriltags import Detector
 
-from geometry_msgs.msg import PolygonStamped, Point32, PoseStamped, Twist
+from geometry_msgs.msg import PolygonStamped, Point32, PoseStamped, Twist, Vector3Stamped
 from sensor_msgs.msg import Image
 
 from ibvs_control.constants import FX, FY, CX, CY, DIST_COEFFS, DESIRED_SIZE
