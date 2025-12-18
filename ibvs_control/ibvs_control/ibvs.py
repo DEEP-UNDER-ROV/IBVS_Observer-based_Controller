@@ -89,25 +89,20 @@ class IBVSControllerNode(Node):
             rows.append(L)
 
             # Normalize the current point and the desired point
-            curr = np.array([
-                (u - CX) / FX,
-                (v - CY) / FY,
-                Z
-            ])
-            des = np.array([
-                (self.desired_pts[i, 0] - CX) / FX,
-                (self.desired_pts[i, 1] - CY) / FY,
-                Z_DES
-            ])
-
-            errs.extend(curr - des)
+            curr_x = (u - CX) / FX
+            curr_y = (v - CY) / FY
+            des_x = (self.desired_pts[i, 0] - CX) / FX
+            des_y = (self.desired_pts[i, 1] - CY) / FY
+            
+            # Error in normalized coordinates
+            errs.extend([curr_x - des_x, curr_y - des_y, Z - Z_DES])
 
         Ls = np.vstack(rows)
         e = np.array(errs).reshape(-1, 1)
 
         # --- TERMINAL PRINTING: FEATURE ERRORS ---
         print("\n" + "="*50)
-        print(f"{'Err Feature':<10} | {'ex (px)':<10} | {'ey (px)':<10} | {'ez (m)':<10}")
+         print(f"{'Feature':<10} | {'du (px)':<10} | {'dv (px)':<10} | {'dz (m)':<10}")
         print("-" * 50)
 
         # errs contains [u1, v1, z1, u2, v2, z2, ...]
@@ -115,7 +110,7 @@ class IBVSControllerNode(Node):
             eu = errs[i*3]     # u error
             ev = errs[i*3 + 1] # v error
             ez = errs[i*3 + 2] # depth error
-            print(f"Point {i+1:<4} | {eu:+10.1f} | {ev:+10.1f} | {ez:+10.3f}")
+            print(f"Point {i+1:<4} | {ex:+10.1f} | {ey:+10.1f} | {ez:+10.3f}")
 
         print("-" * 50)
 
