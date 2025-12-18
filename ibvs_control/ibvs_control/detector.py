@@ -157,7 +157,7 @@ class AprilTagUnifiedNode(Node):
         # Overlay Telemetry
         if self.current_pose:
             z = self.current_pose.pose.position.x # Assuming X is depth in your PnP
-            cv2.putText(stream_frame, f"Depth: {z:.2f}m", (10, 30), 2, 0.6, (255, 0, 255), 2)
+            cv2.putText(stream_frame, f"Depth: {z:.2f}m", (10, 70), 2, 0.6, (255, 0, 255), 2)
         
         if self.current_vel:
             vx = self.current_vel.linear.x
