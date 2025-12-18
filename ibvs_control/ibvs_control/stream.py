@@ -27,8 +27,8 @@ class StreamDisplayNode(Node):
         # --- GStreamer Writer Config ---
         # Using 640x480 for the stream to match the typical detection resolution 
         # and ensure low-latency performance over UDP.
-        STREAM_WIDTH = 640
-        STREAM_HEIGHT = 480
+        STREAM_WIDTH = 1280
+        STREAM_HEIGHT = 720
         
         # Updated pipeline with explicit format negotiation (I420) and zerolatency tuning
         gst_pipeline = (
