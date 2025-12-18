@@ -128,33 +128,37 @@ class IBVSControllerNode(Node):
         # v_b = R_CB * v_c + (w_b x p_CB)
         v_b = (R_CB @ v_c) + np.cross(w_b.flatten(), p_CB).reshape(3, 1)
 
-        # 4. Apply Velocity Capping (The "Slow Tracking" Logic)
-        # np.clip ensures the ROV never exceeds your safety limits
+        # 4. Apply Velocity Capping and Type Casting
+        # We use .item() to extract the raw value and float() to ensure ROS2 compatibility.
+        # BlueROV2 / ArduSub Standard: 
+        # x: Forward, y: Lateral (Strafe), z: Vertical (Throttle)
         vx = float(np.clip(v_b[0], -MAX_LIN_VEL, MAX_LIN_VEL).item())
         vy = float(np.clip(v_b[1], -MAX_LIN_VEL, MAX_LIN_VEL).item())
         vz = float(np.clip(v_b[2], -MAX_LIN_VEL, MAX_LIN_VEL).item())
 
+        # Angular: 
+        # x: Roll, y: Pitch, z: Yaw
         wx = float(np.clip(w_b[0], -MAX_ANG_VEL, MAX_ANG_VEL).item())
-      # wy = float(np.clip(w_b[1], -MAX_ANG_VEL, MAX_ANG_VEL))
-        wy = 0
+        wy = 0.0  # Keep pitch at 0 to maintain ROV stability unless needed
         wz = float(np.clip(w_b[2], -MAX_ANG_VEL, MAX_ANG_VEL).item())
 
-        # 5. Publish to MAVROS
-        # For BlueROV2, these will be translated to thruster PWMs by ArduSub/PX4
+        # 5. Build and Publish Twist Message
         cmd = Twist()
+        
+        # Linear Velocities
         cmd.linear.x = vx
         cmd.linear.y = vy
         cmd.linear.z = vz
 
-        cmd.angular.x = wx  # Rolling correction
-        cmd.angular.y = wy  # Pitching correction
-        cmd.angular.z = wz  # Yawing correction
+        # Angular Velocities
+        cmd.angular.x = wx
+        cmd.angular.y = wy
+        cmd.angular.z = wz
 
+        # Safety Check: Log the command to terminal
+        self.get_logger().info(f"Publishing Cmd: Lin[{vx:.2f}, {vy:.2f}, {vz:.2f}] Ang_Z: {wz:.2f}")
+        
         self.vel_pub.publish(cmd)
-
-        # Terminal Print (Limited for readability)
-        print(f"CMD -> Vb: [{vx:+.2f}, {vy:+.2f}, {vz:+.2f}] Wb: [{wx:+.2f}, {wy:+.2f}, {wz:+.2f}]")
-        print("="*50)
 
 def main():
     rclpy.init()
