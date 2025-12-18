@@ -1,9 +1,3 @@
-        if self.current_vel:
-            vx = self.current_vel.linear.x
-            cv2.putText(stream_frame, f"Vx: {vx:+.2f}", (50, 20), 2, 0.6, (0, 255, 255), 2)
-
-help me publish the other velocity and the error, here ill give the ibvs node for you to write the velocity and the error
-
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
