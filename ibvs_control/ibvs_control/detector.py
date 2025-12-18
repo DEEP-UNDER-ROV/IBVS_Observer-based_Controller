@@ -16,9 +16,9 @@ from ibvs_control.constants import FX, FY, CX, CY, DIST_COEFFS, DESIRED_SIZE
 QGC_IP = "192.168.4.1"
 QGC_PORT = 5600
 
-class AprilTagUnifiedNode(Node):
+class IBVS_Display(Node):
     def __init__(self):
-        super().__init__("apriltag_unified_node")
+        super().__init__("IBVS_Display")
         self.get_logger().info("Initializing Detector node")
 
         # --- ROS Publishers ---
@@ -178,7 +178,7 @@ class AprilTagUnifiedNode(Node):
 
 def main():
     rclpy.init()
-    node = AprilTagUnifiedNode()
+    node = IBVS_Display()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
