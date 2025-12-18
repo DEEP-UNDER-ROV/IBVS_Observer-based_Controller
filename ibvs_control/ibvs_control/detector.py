@@ -74,6 +74,7 @@ class AprilTagUnifiedNode(Node):
 
     def vel_cb(self, msg): self.current_vel = msg
     def pose_cb(self, msg): self.current_pose = msg
+    def err_cb(self, msg): self.current_err = msg
 
     def order_corners_ccw(self, pts):
         center = np.mean(pts, axis=0)
