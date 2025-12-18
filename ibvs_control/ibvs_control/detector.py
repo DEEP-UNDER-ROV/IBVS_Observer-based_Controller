@@ -9,7 +9,7 @@ from pupil_apriltags import Detector
 from geometry_msgs.msg import PolygonStamped, Point32, PoseStamped, Twist
 from sensor_msgs.msg import Image
 
-from ibvs_control.constants import FX, FY, CX, CY, DIST_COEFFS
+from ibvs_control.constants import FX, FY, CX, CY, DIST_COEFFS, DESIRED_SIZE
 
 # --- Streaming Config ---
 QGC_IP = "192.168.4.1"
@@ -18,7 +18,7 @@ QGC_PORT = 5600
 class AprilTagUnifiedNode(Node):
     def __init__(self):
         super().__init__("apriltag_unified_node")
-        self.get_logger().info("Initializing Unified Detector + Streamer...")
+        self.get_logger().info("Initializing Detector node")
 
         # --- ROS Publishers ---
         self.corners_pub = self.create_publisher(PolygonStamped, "/apriltag/corners", 10)
@@ -39,6 +39,18 @@ class AprilTagUnifiedNode(Node):
         cfg.enable_stream(rs.stream.depth, 1280, 720, rs.format.z16, 30)
         self.pipeline.start(cfg)
         self.align = rs.align(rs.stream.color)
+        
+        IMG_W, IMG_H = 1280, 720
+        S = DESIRED_SIZE  # 280 px
+        
+        cx, cy = IMG_W / 2, IMG_H / 2
+        
+        self.desired = np.array([
+            [cx - S/2, cy - S/2],  # top-left
+            [cx + S/2, cy - S/2],  # top-right
+            [cx + S/2, cy + S/2],  # bottom-right
+            [cx - S/2, cy + S/2],  # bottom-left
+        ], dtype=np.float32)
 
         # --- AprilTag Detector Setup ---
         self.detector = Detector(families="tag36h11", nthreads=4, quad_decimate=1.0, refine_edges=True)
@@ -88,8 +100,8 @@ class AprilTagUnifiedNode(Node):
         
         # 1. Detect Tags (at 1280x720)
         detections = self.detector.detect(gray)
-        tag_pts_to_publish = None
-
+        raw_pts = None
+        
         if detections:
             tag = detections[0]
             raw_pts = self.order_corners_ccw(tag.corners.astype(np.float32))
@@ -115,10 +127,20 @@ class AprilTagUnifiedNode(Node):
         stream_frame = cv2.resize(color, (640, 480))
         scale_x, scale_y = 640/1280, 480/720
 
+        desired_scaled = (self.desired * [scale_x, scale_y]).astype(np.int32)
+        
+        # Use polylines for the red box (cleaner and avoids manual indexing)
+        cv2.polylines(stream_frame, [desired_scaled], True, (0, 0, 255), 2)
+
         # Draw scaled tag
         if detections:
             pts_scaled = (raw_pts * [scale_x, scale_y]).astype(np.int32)
             cv2.polylines(stream_frame, [pts_scaled], True, (0, 255, 0), 2)
+            
+            for i, (u, v) in enumerate(pts_scaled):
+                cv2.circle(stream_frame, (int(u), int(v)), 5, (255, 0, 0), -1)
+                cv2.putText(stream_frame, f"{i+1}", (int(u)+6, int(v)-6),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
         # Overlay Telemetry
         if self.current_pose:
