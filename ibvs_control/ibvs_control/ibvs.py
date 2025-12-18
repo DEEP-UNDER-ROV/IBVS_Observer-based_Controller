@@ -20,9 +20,9 @@ R_CB = np.array([
 
 p_CB = np.array([P_CB_X, P_CB_Y, P_CB_Z])
 
-class IBVSControllerNode(Node):
+class IBVS_Control(Node):
     def __init__(self):
-        super().__init__("ibvs_controller")
+        super().__init__("IBVS_Control")
         self.bridge = CvBridge()
 
         # Subscriptions
@@ -171,7 +171,7 @@ class IBVSControllerNode(Node):
 
 def main():
     rclpy.init()
-    node = IBVSControllerNode()
+    node = IBVS_Control()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
