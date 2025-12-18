@@ -16,9 +16,9 @@ from ibvs_control.constants import FX, FY, CX, CY, DIST_COEFFS, DESIRED_SIZE
 QGC_IP = "192.168.4.1"
 QGC_PORT = 5600
 
-class IBVS_Display(Node):
+class IBVS_Telemetry(Node):
     def __init__(self):
-        super().__init__("IBVS_Display")
+        super().__init__("IBVS_Telemetry")
         self.get_logger().info("Initializing Detector node")
 
         # --- ROS Publishers ---
@@ -153,20 +153,27 @@ class IBVS_Display(Node):
         
         if self.current_vel:
             v = self.current_vel
-            cv2.putText(stream_frame, f"Vx:{v.linear.x:+.2f}", (40,20), 2, 0.6, (0,255,255),2)
-            cv2.putText(stream_frame, f"Vy:{v.linear.y:+.2f}", (40,45), 2, 0.6, (0,255,255),2)
-            cv2.putText(stream_frame, f"Vz:{v.linear.z:+.2f}", (40,70), 2, 0.6, (0,255,255),2)
-            cv2.putText(stream_frame, f"Wx:{v.angular.x:+.2f}", (40,95), 2, 0.6, (0,200,255),2)
-            cv2.putText(stream_frame, f"Wy:{v.angular.y:+.2f}", (40,95), 2, 0.6, (0,200,255),2)
-            cv2.putText(stream_frame, f"Wz:{v.angular.z:+.2f}", (40,95), 2, 0.6, (0,200,255),2)
+            cv2.putText(stream_frame, f"Vx:{v.linear.x:+.2f}", (40,25), 1, 0.6, (0,255,255),1)
+            cv2.putText(stream_frame, f"Vy:{v.linear.y:+.2f}", (40,50), 1, 0.6, (0,255,255),1)
+            cv2.putText(stream_frame, f"Vz:{v.linear.z:+.2f}", (40,75), 1, 0.6, (0,255,255),1)
+            cv2.putText(stream_frame, f"Wx:{v.angular.x:+.2f}", (40,100), 1, 0.6, (0,200,255),1)
+            cv2.putText(stream_frame, f"Wy:{v.angular.y:+.2f}", (40,125), 1, 0.6, (0,200,255),1)
+            cv2.putText(stream_frame, f"Wz:{v.angular.z:+.2f}", (40,150), 1, 0.6, (0,200,255),1)
 
         # ---------------- Error Overlay ----------------
-        if self.current_err:
-            e = self.current_err.vector
-            norm = np.linalg.norm([e.x, e.y, e.z])
-            cv2.putText(stream_frame, f"Err u:{e.x:+.4f}", (430,20),2,0.6,(255,100,100),2)
-            cv2.putText(stream_frame, f"Err v:{e.y:+.4f}", (430,45),2,0.6,(255,100,100),2)
-            cv2.putText(stream_frame, f"Err z:{e.z:+.3f}", (430,70),2,0.6,(255,100,100),2)
+        if self.current_err is not None:
+            e = self.current_err.data
+            
+            x0 = 420     # left position
+            y0 = 25      # top position
+            dy = 25      # vertical spacing
+            for i in range(4):
+                ex = e[i*3 + 0]
+                ey = e[i*3 + 1]
+                ez = e[i*3 + 2]
+        
+                cv2.putText(stream_frame, f"P{i+1}: ex={ex:+7.1f}px  ey={ey:+7.1f}px  ez={ez:+.3f} m",
+                    (x0, y0 + i * dy), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2)
 
         # Push to QGC
         self.video_writer.write(stream_frame)
@@ -178,7 +185,7 @@ class IBVS_Display(Node):
 
 def main():
     rclpy.init()
-    node = IBVS_Display()
+    node = IBVS_Telemetry()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
