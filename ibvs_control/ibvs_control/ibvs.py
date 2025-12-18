@@ -89,13 +89,18 @@ class IBVSControllerNode(Node):
             rows.append(L)
 
             # Normalize the current point and the desired point
-            curr_x = (u - CX) / FX
-            curr_y = (v - CY) / FY
-            des_x = (self.desired_pts[i, 0] - CX) / FX
-            des_y = (self.desired_pts[i, 1] - CY) / FY
-            
-            # Error in normalized coordinates
-            errs.extend([curr_x - des_x, curr_y - des_y, Z - Z_DES])
+            curr = np.array([
+                (u - CX) / FX,
+                (v - CY) / FY,
+                Z
+            ])
+            des = np.array([
+                (self.desired_pts[i, 0] - CX) / FX,
+                (self.desired_pts[i, 1] - CY) / FY,
+                Z_DES
+            ])
+
+            errs.extend(curr - des)
 
         Ls = np.vstack(rows)
         e = np.array(errs).reshape(-1, 1)
