@@ -3,7 +3,8 @@ import rclpy
 from rclpy.node import Node
 import numpy as np
 
-from geometry_msgs.msg import PolygonStamped, Twist, Vector3Stamped
+from std_msgs.msg import Float32MultiArray
+from geometry_msgs.msg import PolygonStamped, Twist
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 
@@ -30,7 +31,7 @@ class IBVSControllerNode(Node):
 
         # Publisher - Sending velocity setpoints to MAVROS
         self.vel_pub = self.create_publisher(Twist, "/mavros/setpoint_velocity/cmd_vel_unstamped", 10)
-        self.err_pub = self.create_publisher(Vector3Stamped, "/ibvs/error", 10)
+        self.err_pub = self.create_publisher(Float32MultiArray, "/ibvs/error", 10)
 
         self.depth_img = None
 
@@ -160,13 +161,12 @@ class IBVSControllerNode(Node):
         self.get_logger().info(f"Vx: {vx:.2f}, Vy: {vy:.2f}, Vz: {vz:.2f}, Wx: {wx:.2f}, Wy: {wy:.2f}, Wz: {wz:.2f}")
         self.vel_pub.publish(cmd)
 
-        errs_np = np.array(errs).reshape(4,3)
-        err_msg = Vector3Stamped()
-        err_msg.header.stamp = self.get_clock().now().to_msg()
-        err_msg.vector.x = float(np.mean(errs_np[:,0]))
-        err_msg.vector.y = float(np.mean(errs_np[:,1]))
-        err_msg.vector.z = float(np.mean(errs_np[:,2]))
-
+        errs_np = np.array(errs, dtype=np.float32).reshape(4, 3)
+        err_msg = Float32MultiArray()
+        
+        # Flatten in the order:
+        # [eu1, ev1, ez1, eu2, ev2, ez2, eu3, ev3, ez3, eu4, ev4, ez4]
+        err_msg.data = errs_np.flatten().tolist()
         self.err_pub.publish(err_msg)
 
 def main():
