@@ -6,6 +6,7 @@ import numpy as np
 import pyrealsense2 as rs
 from cv_bridge import CvBridge
 from pupil_apriltags import Detector
+
 from geometry_msgs.msg import PolygonStamped, Point32, PoseStamped, Twist
 from sensor_msgs.msg import Image
 
@@ -27,10 +28,12 @@ class AprilTagUnifiedNode(Node):
         # --- ROS Subscriptions (for Overlay Telemetry) ---
         self.vel_sub = self.create_subscription(Twist, "/mavros/setpoint_velocity/cmd_vel_unstamped", self.vel_cb, 10)
         self.pose_sub = self.create_subscription(PoseStamped, "/mavros/vision_pose/pose", self.pose_cb, 10)
+        self.err_sub = self.create_subscription(Vector3Stamped, "/ibvs/error", self.err_cb, 10)
 
         self.bridge = CvBridge()
         self.current_vel = None
         self.current_pose = None
+        self.current_err = None
 
         # --- RealSense Setup (High Res for Accuracy) ---
         self.pipeline = rs.pipeline()
