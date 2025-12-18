@@ -153,15 +153,10 @@ class AprilTagUnifiedNode(Node):
                 cv2.circle(stream_frame, (int(u), int(v)), 5, (255, 0, 0), -1)
                 cv2.putText(stream_frame, f"{i+1}", (int(u)+6, int(v)-6),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-
-        # Overlay Telemetry
-        if self.current_pose:
-            z = self.current_pose.pose.position.x # Assuming X is depth in your PnP
-            cv2.putText(stream_frame, f"Depth: {z:.2f}m", (10, 70), 2, 0.6, (255, 0, 255), 2)
         
         if self.current_vel:
             vx = self.current_vel.linear.x
-            cv2.putText(stream_frame, f"Vx: {vx:+.2f}", (10, 460), 2, 0.6, (0, 255, 255), 2)
+            cv2.putText(stream_frame, f"Vx: {vx:+.2f}", (50, 20), 2, 0.6, (0, 255, 255), 2)
 
         # Push to QGC
         self.video_writer.write(stream_frame)
