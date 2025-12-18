@@ -102,7 +102,7 @@ class IBVSControllerNode(Node):
 
         # --- TERMINAL PRINTING: FEATURE ERRORS ---
         print("\n" + "="*50)
-         print(f"{'Feature':<10} | {'du (px)':<10} | {'dv (px)':<10} | {'dz (m)':<10}")
+        print(f"{'Feature':<10} | {'du (px)':<10} | {'dv (px)':<10} | {'dz (m)':<10}")
         print("-" * 50)
 
         # errs contains [u1, v1, z1, u2, v2, z2, ...]
