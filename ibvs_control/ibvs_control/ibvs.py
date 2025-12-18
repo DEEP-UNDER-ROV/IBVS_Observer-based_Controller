@@ -108,8 +108,8 @@ class IBVSControllerNode(Node):
 
         # errs contains [u1, v1, z1, u2, v2, z2, ...]
         for i in range(4):
-            eu = errs[i*3]     # u error
-            ev = errs[i*3 + 1] # v error
+            ex = errs[i*3]     # u error
+            ey = errs[i*3 + 1] # v error
             ez = errs[i*3 + 2] # depth error
             print(f"Point {i+1:<4} | {ex:+10.1f} | {ey:+10.1f} | {ez:+10.3f}")
 
