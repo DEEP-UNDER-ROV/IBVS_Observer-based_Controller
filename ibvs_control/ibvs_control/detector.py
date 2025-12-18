@@ -165,7 +165,7 @@ class IBVS_Telemetry(Node):
         if self.current_err is not None:
             e = self.current_err.data
             
-            x0 = 420     # left position
+            x0 = 30     # left position
             y0 = 25      # top position
             dy = 25      # vertical spacing
             for i in range(4):
@@ -173,7 +173,7 @@ class IBVS_Telemetry(Node):
                 ey = e[i*3 + 1]
                 ez = e[i*3 + 2]
         
-                cv2.putText(stream_frame, f"P{i+1}: ex={ex:+7.1f}px  ey={ey:+7.1f}px  ez={ez:+.3f} m",
+                cv2.putText(stream_frame, f"P{i+1}: ex={ex:+.2f}px  ey={ey:+.2f}px  ez={ez:+.2f} m",
                     (x0, y0 + i * dy), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2)
 
         # Push to QGC
