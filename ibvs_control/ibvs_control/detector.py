@@ -153,19 +153,19 @@ class AprilTagUnifiedNode(Node):
         
         if self.current_vel:
             v = self.current_vel
-            cv2.putText(frame, f"Vx:{v.linear.x:+.2f}", (10,20), 2, 0.6, (0,255,255),2)
-            cv2.putText(frame, f"Vy:{v.linear.y:+.2f}", (10,45), 2, 0.6, (0,255,255),2)
-            cv2.putText(frame, f"Vz:{v.linear.z:+.2f}", (10,70), 2, 0.6, (0,255,255),2)
-            cv2.putText(frame, f"Wz:{v.angular.z:+.2f}", (10,95), 2, 0.6, (0,200,255),2)
+            cv2.putText(stream_frame, f"Vx:{v.linear.x:+.2f}", (10,20), 2, 0.6, (0,255,255),2)
+            cv2.putText(stream_frame, f"Vy:{v.linear.y:+.2f}", (10,45), 2, 0.6, (0,255,255),2)
+            cv2.putText(stream_frame, f"Vz:{v.linear.z:+.2f}", (10,70), 2, 0.6, (0,255,255),2)
+            cv2.putText(stream_frame, f"Wz:{v.angular.z:+.2f}", (10,95), 2, 0.6, (0,200,255),2)
 
         # ---------------- Error Overlay ----------------
         if self.current_err:
             e = self.current_err.vector
             norm = np.linalg.norm([e.x, e.y, e.z])
-            cv2.putText(frame, f"Err u:{e.x:+.4f}", (430,20),2,0.6,(255,100,100),2)
-            cv2.putText(frame, f"Err v:{e.y:+.4f}", (430,45),2,0.6,(255,100,100),2)
-            cv2.putText(frame, f"Err z:{e.z:+.3f}", (430,70),2,0.6,(255,100,100),2)
-            cv2.putText(frame, f"||e||:{norm:.4f}", (430,95),2,0.6,(0,0,255),2)
+            cv2.putText(stream_frame, f"Err u:{e.x:+.4f}", (430,20),2,0.6,(255,100,100),2)
+            cv2.putText(stream_frame, f"Err v:{e.y:+.4f}", (430,45),2,0.6,(255,100,100),2)
+            cv2.putText(stream_frame, f"Err z:{e.z:+.3f}", (430,70),2,0.6,(255,100,100),2)
+            cv2.putText(stream_frame, f"||e||:{norm:.4f}", (430,95),2,0.6,(0,0,255),2)
 
         # Push to QGC
         self.video_writer.write(stream_frame)
