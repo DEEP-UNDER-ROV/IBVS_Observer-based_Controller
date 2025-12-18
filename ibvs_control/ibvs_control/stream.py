@@ -23,23 +23,14 @@ class StreamDisplayNode(Node):
         self.vel_sub = self.create_subscription(Twist, "/mavros/setpoint_velocity/cmd_vel_unstamped", self.vel_cb, 10)
         self.pose_sub = self.create_subscription(PoseStamped, "/mavros/vision_pose/pose", self.pose_cb, 10)
 
-        # --- Robust GStreamer Pipeline ---
-        # Added 'sync=false' to udpsink to prevent hanging if the network buffer is full
-        gst_pipeline = (
-            f"appsrc ! videoconvert ! videoscale ! "
-            f"video/x-raw,width=640,height=480,format=I420 ! "
-            f"x264enc tune=zerolatency bitrate=800 speed-preset=ultrafast ! "
-            f"rtph264pay config-interval=1 pt=96 ! "
-            f"udpsink host={QGC_IP} port={QGC_PORT} sync=false"
+        self.video = cv2.VideoWriter(
+            f"appsrc ! videoconvert ! x264enc tune=zerolatency bitrate=500 speed-preset=ultrafast "
+            f"! rtph264pay config-interval=1 pt=96 "
+            f"! udpsink host={QGC_IP} port={QGC_PORT}",
+            cv2.CAP_GSTREAMER, 0, 30, (640, 480), True
         )
         
         self.get_logger().info(f"Opening GStreamer: {QGC_IP}:{QGC_PORT}")
-        self.video_writer = cv2.VideoWriter(gst_pipeline, cv2.CAP_GSTREAMER, 0, 30.0, (640, 480), True)
-
-        if not self.video_writer.isOpened():
-            self.get_logger().error("CRITICAL: GStreamer Pipeline failed! Check your GStreamer plugins.")
-        else:
-            self.get_logger().info("GStreamer Pipeline opened successfully.")
 
         self.tag_pts = None
         self.current_vel = None
