@@ -7,6 +7,7 @@ import pyrealsense2 as rs
 from cv_bridge import CvBridge
 from pupil_apriltags import Detector
 
+from std_msgs.msg import Float32MultiArray
 from geometry_msgs.msg import PolygonStamped, Point32, PoseStamped, Twist, Vector3Stamped
 from sensor_msgs.msg import Image
 
@@ -28,7 +29,7 @@ class IBVS_Telemetry(Node):
         # --- ROS Subscriptions (for Overlay Telemetry) ---
         self.vel_sub = self.create_subscription(Twist, "/mavros/setpoint_velocity/cmd_vel_unstamped", self.vel_cb, 10)
         self.pose_sub = self.create_subscription(PoseStamped, "/mavros/vision_pose/pose", self.pose_cb, 10)
-        self.err_sub = self.create_subscription(Vector3Stamped, "/ibvs/error", self.err_cb, 10)
+        self.err_sub = self.create_subscription(Float32MultiArray, "/ibvs/error", self.err_cb, 10)
 
         self.bridge = CvBridge()
         self.current_vel = None
