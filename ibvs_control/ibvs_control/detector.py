@@ -45,7 +45,7 @@ class AprilTagDetectorNode(Node):
             refine_edges=True,
         )
 
-        self.timer = self.create_timer(0.01, self.loop) # 100Hz attempts
+        self.timer = self.create_timer(0.033, self.loop) # 30Hz attempts
         self.get_logger().info("Precision AprilTag detector node started")
 
     def order_corners_ccw(self, pts):
