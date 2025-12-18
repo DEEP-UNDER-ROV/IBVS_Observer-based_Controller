@@ -80,21 +80,23 @@ class IBVSControllerNode(Node):
             patch = self.depth_img[max(0, vi-PATCH):min(h, vi+PATCH+1),
                                    max(0, ui-PATCH):min(w, ui+PATCH+1)]
             valid = patch[patch > 0]
-            if valid.size == 0: return
+            if valid.size == 0:
+                self.get_logger().warn(f"No valid depth for point {i+1}")
+                return
 
             Z = float(np.median(valid))
 
             L = self.interaction_matrix(u, v, Z)
             rows.append(L)
 
-        # Normalize the current point and the desired point
-        curr_x = (u - CX) / FX
-        curr_y = (v - CY) / FY
-        des_x = (self.desired_pts[i, 0] - CX) / FX
-        des_y = (self.desired_pts[i, 1] - CY) / FY
-        
-        # Error in normalized coordinates
-        errs.extend([curr_x - des_x, curr_y - des_y, Z - Z_DES])
+            # Normalize the current point and the desired point
+            curr_x = (u - CX) / FX
+            curr_y = (v - CY) / FY
+            des_x = (self.desired_pts[i, 0] - CX) / FX
+            des_y = (self.desired_pts[i, 1] - CY) / FY
+            
+            # Error in normalized coordinates
+            errs.extend([curr_x - des_x, curr_y - des_y, Z - Z_DES])
 
         Ls = np.vstack(rows)
         e = np.array(errs).reshape(-1, 1)
@@ -132,15 +134,15 @@ class IBVSControllerNode(Node):
         # We use .item() to extract the raw value and float() to ensure ROS2 compatibility.
         # BlueROV2 / ArduSub Standard: 
         # x: Forward, y: Lateral (Strafe), z: Vertical (Throttle)
-        vx = float(np.clip(v_b[0], -MAX_LIN_VEL, MAX_LIN_VEL).item())
-        vy = float(np.clip(v_b[1], -MAX_LIN_VEL, MAX_LIN_VEL).item())
-        vz = float(np.clip(v_b[2], -MAX_LIN_VEL, MAX_LIN_VEL).item())
+        vx = float(np.clip(v_b[0].item(), -MAX_LIN_VEL, MAX_LIN_VEL))
+        vy = float(np.clip(v_b[1].item(), -MAX_LIN_VEL, MAX_LIN_VEL))
+        vz = float(np.clip(v_b[2].item(), -MAX_LIN_VEL, MAX_LIN_VEL))
 
         # Angular: 
         # x: Roll, y: Pitch, z: Yaw
-        wx = float(np.clip(w_b[0], -MAX_ANG_VEL, MAX_ANG_VEL).item())
+        wx = float(np.clip(w_b[0].item(), -MAX_ANG_VEL, MAX_ANG_VEL))
         wy = 0.0  # Keep pitch at 0 to maintain ROV stability unless needed
-        wz = float(np.clip(w_b[2], -MAX_ANG_VEL, MAX_ANG_VEL).item())
+        wz = float(np.clip(w_b[2].item(), -MAX_ANG_VEL, MAX_ANG_VEL))
 
         # 5. Build and Publish Twist Message
         cmd = Twist()
