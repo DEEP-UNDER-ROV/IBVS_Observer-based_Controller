@@ -41,10 +41,10 @@ class PnPRelativePoseNode(Node):
 
         s = TAG_SIZE / 2.0
         self.object_points = np.array([
-            [-s, -s, 0],
-            [ s, -s, 0],
-            [ s,  s, 0],
-            [-s,  s, 0]
+            [-s, s, 0],
+            [ s, s, 0],
+            [ s,  -s, 0],
+            [-s,  -s, 0]
         ], dtype=np.float32)
 
         # Local reference
