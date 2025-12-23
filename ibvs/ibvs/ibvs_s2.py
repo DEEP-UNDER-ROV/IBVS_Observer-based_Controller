@@ -113,7 +113,7 @@ class IBVSControllerNode(Node):
 
 def main():
     rclpy.init()
-    rclpy.spin(IBVSIntegratedNode())
+    rclpy.spin(IBVSControllerNode())
     rclpy.shutdown()
 
 if __name__=="__main__":
