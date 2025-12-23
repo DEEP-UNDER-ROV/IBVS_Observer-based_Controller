@@ -47,7 +47,7 @@ class IBVS_Telemetry(Node):
         self.compressed_pub = self.create_publisher(CompressedImage, "/camera/color/image_raw/compressed", 10)
 
         # --- ROS Subscriptions ---
-        self.rc_pub = self.create_subscription(OverrideRCIn, "/mavros/rc/override",self.cb_rc, 10)
+        self.rc_sub = self.create_subscription(OverrideRCIn, "/mavros/rc/override",self.cb_rc, 10)
         self.pos_sub = self.create_subscription(Point32, "/ibvs/pos", self.cb_pos, 10)      
         self.vel_sub = self.create_subscription(Twist, "/ibvs/vel", self.cb_vel, 10)
         self.err_sub = self.create_subscription(Float32MultiArray, "/ibvs/error", self.cb_err, 10)
