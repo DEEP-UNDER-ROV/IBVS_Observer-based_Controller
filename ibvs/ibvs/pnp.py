@@ -63,7 +63,7 @@ class PNP_Node(Node):
             self.object_points, image_pts, self.camera_matrix, self.dist_coeffs, flags=cv2.SOLVEPNP_IPPE_SQUARE
         )
 
-        if not success or tvec[2] <= 0::
+        if not success or tvec[2] <= 0:
             return
 
         R, _ = cv2.Rodrigues(rvec)
@@ -125,9 +125,9 @@ class PNP_Node(Node):
             f"y={-t_rel[0][0]:+.4f}, "
             f"z={-t_rel[1][0]:+.4f} | "
             "RPY [deg]: "
-            f"roll={math.degrees(rel_roll):+.2f}, "
-            f"pitch={math.degrees(rel_pitch):+.2f}, "
-            f"yaw={math.degrees(rel_yaw):+.2f}"
+            f"roll={math.degrees(roll):+.2f}, "
+            f"pitch={math.degrees(pitch):+.2f}, "
+            f"yaw={math.degrees(yaw):+.2f}"
         )
 
     @staticmethod
@@ -145,6 +145,22 @@ class PNP_Node(Node):
             cr * cp * sy - sr * sp * cy,
             cr * cp * cy + sr * sp * sy
         )
+
+    @staticmethod
+    def rotation_matrix_to_euler(R):
+        sy = math.sqrt(R[0, 0] * R[0, 0] + R[1, 0] * R[1, 0])
+        singular = sy < 1e-6
+    
+        if not singular:
+            roll  = math.atan2(R[2, 1], R[2, 2])
+            pitch = math.atan2(-R[2, 0], sy)
+            yaw   = math.atan2(R[1, 0], R[0, 0])
+        else:
+            roll  = math.atan2(-R[1, 2], R[1, 1])
+            pitch = math.atan2(-R[2, 0], sy)
+            yaw   = 0.0
+    
+        return roll, pitch, yaw
 
 
 def main():
