@@ -27,3 +27,7 @@ PATCH = 2
 # --- Velocity Limits ---
 MAX_LIN_VEL = 0.2
 MAX_ANG_VEL = 0.2
+
+# --- QGC Port Configuration ---
+QGC_IP = "192.168.4.1"
+QGC_PORT = 5600
