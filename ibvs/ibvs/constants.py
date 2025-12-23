@@ -17,8 +17,8 @@ P_CB_Y = 0.0
 P_CB_Z = 0.02
 
 # --- IBVS Control Parameters ---
-LAMBDA_P = 0.05
-Z_DES = 1.0
+LAMBDA_P = 0.02
+Z_DES = 1.5
 TAG_SIZE = 0.207
 PATCH = 2
 
