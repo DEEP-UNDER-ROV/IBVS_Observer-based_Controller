@@ -29,7 +29,7 @@ class IBVSControllerNode(Node):
 
         self.depth_img = None
 
-        self.desired_pts = self.desired_corners(Z_DES)
+        self.desired_pts = self.desired_corners(Z_DES, FX, FY, CX, CY, TAG_SIZE)
 
         self.M = build_M_matrix(
             mass=15.0,
