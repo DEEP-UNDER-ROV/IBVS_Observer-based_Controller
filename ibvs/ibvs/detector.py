@@ -101,13 +101,13 @@ class IBVS_Telemetry(Node):
     def err_cb(self, msg): self.current_err = msg
 
     @staticmethod
-    def order_corners_ccw(self, pts):
-        center = np.mean(pts, axis=0)
-        angles = np.arctan2(pts[:,1] - center[1], pts[:,0] - center[0])
-        idx = np.argsort(angles)
-        pts = pts[idx]
-        s = pts.sum(axis=1)
-        return np.roll(pts, -np.argmin(s), axis=0)
+    def order_corners_apriltag(corners):
+        return np.array([
+            corners[0],  # TL
+            corners[1],  # TR
+            corners[2],  # BR
+            corners[3],  # BL
+        ], dtype=np.float32)
 
     def loop(self):
         frames = self.pipeline.poll_for_frames()
@@ -130,7 +130,7 @@ class IBVS_Telemetry(Node):
         
         if detections:
             tag = detections[0]
-            raw_pts = self.order_corners_ccw(tag.corners.astype(np.float32))
+            raw_pts = self.order_corners_apriltag(tag.corners)
             pts = raw_pts.reshape(-1, 1, 2)
             undistorted = cv2.undistortPoints(pts, self.camera_matrix, self.dist_coeffs, P=self.camera_matrix)          
             undistorted_pts = undistorted.reshape(-1, 2)
