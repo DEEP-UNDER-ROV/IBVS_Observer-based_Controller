@@ -170,9 +170,9 @@ class IBVS_Telemetry(Node):
             pts_u_draw = (pts_u * [sx, sy]).astype(np.int32)
 
             cv2.polylines(stream, [pts_u_draw], True, (0, 255, 0), 2)
-        for i, (u, v) in enumerate(pts_u_draw):
-            cv2.circle(stream, (u, v), 5, (255, 0, 0), -1)
-            cv2.putText(stream, f"{i+1}", (u+6, v-6), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            for i, (u, v) in enumerate(pts_u_draw):
+                cv2.circle(stream, (u, v), 5, (255, 0, 0), -1)
+                cv2.putText(stream, f"{i+1}", (u+6, v-6), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
         if raw_pts is not None:
             pts_r = np.asarray(raw_pts).reshape(4, 2)
