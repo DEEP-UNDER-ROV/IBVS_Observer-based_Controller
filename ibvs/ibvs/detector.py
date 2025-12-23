@@ -189,10 +189,17 @@ class IBVS_Telemetry(Node):
             e = np.asarray(self.current_err.data)
             
             x0, y0, dy = 153, 25, 20
-            for i in range(4):
-                ex, ey, ez = e[i*3:(i+1)*3]
-                cv2.putText(stream, f"P{i+1}: ex={ex:+.2f}px  ey={ey:+.2f}px  ez={ez:+.2f} m",
-                    (x0, y0 + i * dy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+            num_elements = len(e)
+            if num_elements == 12:
+                for i in range(4):
+                    ex, ey, ez = e[i*3:(i+1)*3]
+                    cv2.putText(stream, f"P{i+1}: ex={ex:+.2f}px  ey={ey:+.2f}px  ez={ez:+.2f} m",
+                        (x0, y0 + i * dy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+            elif num_elements == 3:
+                ex, ey, ez = e
+                cv2.putText(stream, f"Center Err: X:{ex:+.2f} Y:{ey:+.2f} Z:{ez:+.2f}",
+                            (x0, y0), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+        
         
         if self.current_vel is not None:
             v = self.current_vel
