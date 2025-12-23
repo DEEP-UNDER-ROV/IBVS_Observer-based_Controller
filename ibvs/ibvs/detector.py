@@ -11,7 +11,7 @@ from pupil_apriltags import Detector
 from std_msgs.msg import Float32MultiArray
 from geometry_msgs.msg import PolygonStamped, Point32, PoseStamped, Twist, Point, Vector3Stamped
 from sensor_msgs.msg import Image, CompressedImage
-from mavros_msgs.msg import OverrideRCIn
+from mavros_msgs.msg import OverrideRCIn, RCOut
 
 from ibvs.constants import *
 
@@ -48,12 +48,14 @@ class IBVS_Telemetry(Node):
 
         # --- ROS Subscriptions ---
         self.rc_sub = self.create_subscription(OverrideRCIn, "/mavros/rc/override",self.cb_rc, 10)
+        self.rc_out_sub = self.create_subscription(RCOut, "/mavros/rc/out", self.cb_rc_out, 10)
         self.pos_sub = self.create_subscription(Point, "/ibvs/pos", self.cb_pos, 10)      
         self.vel_sub = self.create_subscription(Twist, "/ibvs/vel", self.cb_vel, 10)
         self.err_sub = self.create_subscription(Float32MultiArray, "/ibvs/error", self.cb_err, 10)
         self.tvec_sub = self.create_subscription(Vector3Stamped, "/pnp/tvec", self.cb_tvec, 10)
         
         self.current_rc = None
+        self.current_rc_out = None
         self.current_vel = None
         self.current_pos = None
         self.current_tvec = None
@@ -100,11 +102,12 @@ class IBVS_Telemetry(Node):
         self.get_logger().info(f"Streaming to QGC at {QGC_IP}:{QGC_PORT}")
 
     def cb_rc(self, msg): self.current_rc = msg
+    def cb_rc_out(self, msg):self.current_rc_out = msg
     def cb_vel(self, msg): self.current_vel = msg
     def cb_pos(self, msg): self.current_pos = msg
     def cb_tvec(self, msg): self.current_tvec = msg
     def cb_err(self, msg): self.current_err = msg
-
+        
     @staticmethod
     def order_corners_apriltag(corners):
         return np.array([
@@ -216,6 +219,13 @@ class IBVS_Telemetry(Node):
             cv2.putText(stream, f"Sway  :{rc.channels[5]:+.2f}", (20,170), 2,  0.5, (51,255,153), 2)
             cv2.putText(stream, f"Heave :{rc.channels[2]:+.2f}", (20,190), 2,  0.5, (51,255,153), 2)
             cv2.putText(stream, f"Yaw   :{rc.channels[3]:+.2f}", (20,210), 2,  0.5, (51,255,153), 2)
+
+        # --- Actual Motor PWMs ---
+        if self.current_rc_out is not None:
+            mx, my = 20, 230 
+            for i in range(8):
+                pwm = self.current_rc_out.pwm[i]
+                cv2.putText(stream, f"M{i+1}: {pwm}", (mx, my + (i * 20)), 2, 0.5, (0, 255, 0), 1)
             
         # Push to QGC
         self.video_writer.write(stream)
