@@ -116,7 +116,7 @@ class IBVSControllerNode(Node):
         self.vel_pub.publish(vel)
         
         # Integrate velocity → position offset
-        self.p_cmd += v_b.flatten() * dt
+        self.p_cmd += Vb.flatten() * dt
         self.p_cmd = np.clip(self.p_cmd, -MAX_OFFSET, MAX_OFFSET)
         self.p_cmd *= 0.995       
    
