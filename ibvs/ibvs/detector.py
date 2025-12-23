@@ -106,10 +106,10 @@ class IBVS_Telemetry(Node):
     @staticmethod
     def order_corners_apriltag(corners):
         return np.array([
-            corners[0],  # TL
-            corners[1],  # TR
-            corners[2],  # BR
-            corners[3],  # BL
+            corners[3],  # TL
+            corners[2],  # TR
+            corners[1],  # BR
+            corners[0],  # BL
         ], dtype=np.float32)
 
     def loop(self):
