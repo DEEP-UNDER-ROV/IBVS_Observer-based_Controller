@@ -158,7 +158,8 @@ class IBVS_Telemetry(Node):
         desired_draw = desired_draw.reshape((-1, 1, 2))
         cv2.polylines(stream, [desired_draw], True, (0, 0, 255), 2)
 
-        for i, (x, y) in enumerate(desired_draw):
+        desired_pts_flat = desired_draw.reshape(-1, 2)
+        for i, (x, y) in enumerate(desired_pts_flat):
             cv2.circle(stream, (int(x), int(y)), 4, (0, 0, 255), -1)
             cv2.putText(stream, f"{i+1}", (int(x) + 5, int(y) - 5),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1 )
