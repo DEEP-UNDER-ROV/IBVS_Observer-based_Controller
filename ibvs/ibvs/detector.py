@@ -46,18 +46,18 @@ class IBVS_Telemetry(Node):
         self.compressed_pub = self.create_publisher(CompressedImage, "/camera/color/image_raw/compressed", 10)
 
         # --- ROS Subscriptions ---
+        self.rc_pub = self.create_publisher(OverrideRCIn, "/mavros/rc/override",self.cb_rc, 10)
+        self.pos_sub = self.create_subscription(Point32, "/ibvs/pos", self.cb_pos, 10)      
+        self.vel_sub = self.create_subscription(Twist, "/ibvs/vel", self.cb_vel, 10)
+        self.err_sub = self.create_subscription(Float32MultiArray, "/ibvs/error", self.cb_err, 10)
+        self.tvec_sub = self.create_subscription(Vector3Stamped, "/pnp/tvec", self.cb_tvec, 10)
         
-        self.pose_sub = self.create_subscription(PoseStamped, "/mavros/vision_pose/pose", self.pose_cb, 10)        
-        self.pos_sub = self.create_subscription(Point32, "/ibvs/pos", self.pos_cb, 10)      
-        self.vel_sub = self.create_subscription(Twist, "/ibvs/vel", self.vel_cb, 10)
-        self.err_sub = self.create_subscription(Float32MultiArray, "/ibvs/error", self.err_cb, 10)
-        
-
+        self.current_rc = None
         self.current_vel = None
         self.current_pos = None
-        self.current_pose = None
+        self.current_tvec = None
         self.current_err = None
-
+        
         self.camera_matrix = np.array([
             [FX, 0, CX],
             [0, FY, CY],
@@ -98,10 +98,11 @@ class IBVS_Telemetry(Node):
         self.timer = self.create_timer(0.033, self.loop)
         self.get_logger().info(f"Streaming to QGC at {QGC_IP}:{QGC_PORT}")
 
-    def vel_cb(self, msg): self.current_vel = msg
-    def pos_cb(self, msg): self.current_pos = msg
-    def pose_cb(self, msg): self.current_pose = msg
-    def err_cb(self, msg): self.current_err = msg
+    def cb_rc(self, msg): self.current_rc = msg
+    def cb_vel(self, msg): self.current_vel = msg
+    def cb_pos(self, msg): self.current_pos = msg
+    def cb_tvec(self, msg): self.current_tvec = msg
+    def cb_err(self, msg): self.current_err = msg
 
     @staticmethod
     def order_corners_apriltag(corners):
@@ -177,8 +178,17 @@ class IBVS_Telemetry(Node):
         if raw_pts is not None:
             pts_r = np.asarray(raw_pts).reshape(4, 2)
             pts_r_draw = (pts_r * [sx, sy]).astype(np.int32)
-        
             cv2.polylines(stream, [pts_r_draw], True, (0, 180, 180), 1)
+
+        # --- Error Overlay ---
+        if self.current_err is not None:
+            e = np.asarray(self.current_err.data)
+            
+            x0, y0, dy = 145, 25, 20
+            for i in range(4):
+                ex, ey, ez = e[i*3:(i+1)*3]
+                cv2.putText(stream, f"P{i+1}: ex={ex:+.2f}px  ey={ey:+.2f}px  ez={ez:+.2f} m",
+                    (x0, y0 + i * dy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
         
         if self.current_vel is not None:
             v = self.current_vel
@@ -189,16 +199,23 @@ class IBVS_Telemetry(Node):
             cv2.putText(stream, f"Wy:{v.angular.y:+.2f}", (20,105), 2, 0.5, (0,200,255), 2)
             cv2.putText(stream, f"Wz:{v.angular.z:+.2f}", (20,125), 2, 0.5, (0,200,255), 2)
 
-        # ---------------- Error Overlay ----------------
-        if self.current_err is not None:
-            e = np.asarray(self.current_err.data)
+        if self.current_tvec is not None:
+            d = self.current_tvec.vector
+            cv2.putText(stream, f"Range:{d.z:+.2f}", (20,25), 2,  0.5, (0,255,255), 2)
             
-            x0, y0, dy = 145, 25, 20
-            for i in range(4):
-                ex, ey, ez = e[i*3:(i+1)*3]
-                cv2.putText(stream, f"P{i+1}: ex={ex:+.2f}px  ey={ey:+.2f}px  ez={ez:+.2f} m",
-                    (x0, y0 + i * dy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+        if self.current_pos is not None:
+            p = self.current_pos
+            cv2.putText(stream, f"X:{p.x:+.2f}", (20,45), 2,  0.5, (0,255,255), 2)
+            cv2.putText(stream, f"Y:{p.y:+.2f}", (20,65), 2,  0.5, (0,255,255), 2)
+            cv2.putText(stream, f"Z:{p.z:+.2f}", (20,85), 2,  0.5, (0,255,255), 2)
 
+        if self.current_rc is not None:
+            rc = self.current_rc
+            cv2.putText(stream, f"Surge :{rc.channels[0]:+.2f}", (20,85), 2,  0.5, (0,255,255), 2)
+            cv2.putText(stream, f"Sway  :{rc.channels[1]:+.2f}", (20,105), 2,  0.5, (0,255,255), 2)
+            cv2.putText(stream, f"Heave :{rc.channels[2]:+.2f}", (20,45), 2,  0.5, (0,255,255), 2)
+            cv2.putText(stream, f"Yaw   :{rc.channels[5]:+.2f}", (20,65), 2,  0.5, (0,255,255), 2)
+            
         # Push to QGC
         self.video_writer.write(stream)
 
