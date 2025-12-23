@@ -14,7 +14,7 @@ DIST_COEFFS = [-0.053665, 0.0314185, -0.00216851, 0.00262024, 0.0]
 TAG_SIZE = 0.205  # Meters
 
 # --- BlueROV2 Physical Offsets (Camera relative to CoG) ---
-P_CB_X = -0.20
+P_CB_X = -0.17
 P_CB_Y = 0.0
 P_CB_Z = 0.02
 
