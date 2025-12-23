@@ -32,6 +32,10 @@ class IBVSControllerNode(Node):
 
         self.get_logger().info("CAUTION !! IBVS Control ON")
 
+        self.start_time = self.get_clock().now()
+        self.hold_duration = 1.0  # seconds
+        self.hold_active = True
+
     def desired_corners(self, Z_DES , fx, fy, cx, cy, tag_size):
         half = tag_size / 2.0
         corners = np.array([
@@ -118,6 +122,20 @@ class IBVSControllerNode(Node):
         self.vel_pub.publish(vel)
         
         # Integrate velocity → position offset
+        elapsed = (now - self.start_time).nanoseconds * 1e-9
+        if elapsed < self.hold_duration:
+            # --- STARTUP HOLD ---
+            self.p_cmd[:] = 0.0
+            if self.hold_active and elapsed >= self.hold_duration:
+                self.get_logger().info("IBVS position hold released")
+                self.hold_active = False
+
+        else:
+            # --- NORMAL IBVS POSITION INTEGRATION ---
+            self.p_cmd += v_b.flatten() * dt
+            self.p_cmd = np.clip(self.p_cmd, -MAX_OFFSET, MAX_OFFSET)
+            self.p_cmd *= 0.995
+            
         self.p_cmd += Vb.flatten() * dt
         self.p_cmd = np.clip(self.p_cmd, -MAX_OFFSET, MAX_OFFSET)
         self.p_cmd *= 0.995       
