@@ -9,7 +9,7 @@ from cv_bridge import CvBridge
 from pupil_apriltags import Detector
 
 from std_msgs.msg import Float32MultiArray
-from geometry_msgs.msg import PolygonStamped, Point32, PoseStamped, Twist, Vector3Stamped
+from geometry_msgs.msg import PolygonStamped, Point32, PoseStamped, Twist, Point
 from sensor_msgs.msg import Image, CompressedImage
 
 from ibvs.constants import *
@@ -42,8 +42,8 @@ class IBVS_Telemetry(Node):
         # --- ROS Publishers ---
         self.corners_pub = self.create_publisher(PolygonStamped, "/apriltag/corners", 10)
         self.depth_pub = self.create_publisher(Image, "/camera/depth/image_raw", 10)
-        self.raw_img_pub = self.create_publisher(Image, "/camera/image/raw", 10)
-        self.comp_img_pub = self.create_publisher(CompressedImage, "/camera/image/raw_compressed", 10)
+        self.raw_pub = self.create_publisher(Image, "/camera/color/image_raw", 10)
+        self.compressed_pub = self.create_publisher(CompressedImage, "/camera/color/image_raw/compressed", 10)
 
         # --- ROS Subscriptions ---
         
@@ -121,6 +121,7 @@ class IBVS_Telemetry(Node):
 
         color = np.asanyarray(color_frame.get_data())
         depth = np.asanyarray(depth_frame.get_data())
+        timestamp = self.get_clock().now().to_msg()
         gray = cv2.cvtColor(color, cv2.COLOR_BGR2GRAY)
         
         # 1. Detect Tags (at 1280x720)
@@ -189,18 +190,26 @@ class IBVS_Telemetry(Node):
         # Push to QGC
         self.video_writer.write(stream)
 
+        # --- Publish Raw Image (For processing nodes) ---
+        raw_msg = self.bridge.cv2_to_imgmsg(color, encoding="bgr8")
+        raw_msg.header.stamp = timestamp
+        raw_msg.header.frame_id = "camera_link"
+        self.raw_pub.publish(raw_msg)
+
+        # --- Publish Compressed Image (For Rosbag) ---
+        comp_msg = CompressedImage()
+        comp_msg.header = raw_msg.header
+        comp_msg.format = "jpeg"
+        success, buffer = cv2.imencode(".jpg", color, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        if success:
+            comp_msg.data = np.array(buffer).tobytes()
+            self.compressed_pub.publish(comp_msg)
+
         # Publish Depth Map
         depth_msg = self.bridge.cv2_to_imgmsg(depth, encoding="16UC1")
         depth_msg.header.stamp = self.get_clock().now().to_msg()
         self.depth_pub.publish(depth_msg)
-
-        msg = CompressedImage()
-        msg.header.stamp = self.get_clock().now().to_msg()
-        msg.format = "jpeg"
-        success, encode_buffer = cv2.imencode(".jpg", stream, [cv2.IMWRITE_JPEG_QUALITY, 80])
-        if success:
-            msg.data = np.array(encode_buffer).tobytes()
-            self.compressed_pub.publish(msg)
+)
 
 def main():
     rclpy.init()
