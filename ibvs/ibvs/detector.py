@@ -11,13 +11,33 @@ from std_msgs.msg import Float32MultiArray
 from geometry_msgs.msg import PolygonStamped, Point32, PoseStamped, Twist, Vector3Stamped
 from sensor_msgs.msg import Image
 
-from ibvs.constants import FX, FY, CX, CY, DIST_COEFFS, DESIRED_SIZE
+from ibvs.constants import *
 
 # --- Streaming Config ---
 QGC_IP = "192.168.4.1"
 QGC_PORT = 5600
 
 class IBVS_Telemetry(Node):
+    def desired_corners_from_Z(self, Z_des):
+        half = TAG_SIZE / 2.0
+    
+        # Tag corners in camera frame (meters)
+        corners_3d = np.array([
+            [-half, -half, Z_des],
+            [ half, -half, Z_des],
+            [ half,  half, Z_des],
+            [-half,  half, Z_des],
+        ])
+    
+        desired = np.zeros((4, 2), dtype=np.float32)
+    
+        for i, (X, Y, Z) in enumerate(corners_3d):
+            u = FX * (X / Z) + CX
+            v = FY * (Y / Z) + CY
+            desired[i] = [u, v]
+    
+        return desired
+    
     def __init__(self):
         super().__init__("IBVS_Telemetry")
         self.get_logger().info("Initializing Detector node")
@@ -45,17 +65,7 @@ class IBVS_Telemetry(Node):
         self.align = rs.align(rs.stream.color)
         
         IMG_W, IMG_H = 1280, 720
-        S = DESIRED_SIZE  # 280 px
         
-        cx, cy = IMG_W / 2, IMG_H / 2
-        
-        self.desired = np.array([
-            [cx - S/2, cy - S/2],  # top-left
-            [cx + S/2, cy - S/2],  # top-right
-            [cx + S/2, cy + S/2],  # bottom-right
-            [cx - S/2, cy + S/2],  # bottom-left
-        ], dtype=np.float32)
-
         # --- AprilTag Detector Setup ---
         self.detector = Detector(families="tag36h11", nthreads=4, quad_decimate=1.0, refine_edges=True)
 
@@ -131,7 +141,8 @@ class IBVS_Telemetry(Node):
         # 2. Draw & Stream (Downscale to 640x480)
         stream_frame = cv2.resize(color, (640, 480))
         scale_x, scale_y = 640/1280, 480/720
-
+        
+        self.desired = self.desired_corners_from_Z(Z_DES)
         desired_scaled = (self.desired * [scale_x, scale_y]).astype(np.int32)
         
         # Use polylines for the red box (cleaner and avoids manual indexing)
