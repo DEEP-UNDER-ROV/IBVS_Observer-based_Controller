@@ -149,7 +149,7 @@ class PNP_Node(Node):
 
 def main():
     rclpy.init()
-    node = PnPRelativePoseNode()
+    node = PNP_Node()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
