@@ -30,6 +30,8 @@ class IBVSControllerNode(Node):
         
         self.desired_pts = self.desired_corners(Z_DES, FX, FY, CX, CY, TAG_SIZE)
 
+        self.get_logger().info("CAUTION !! IBVS Control ON")
+
     def desired_corners(self, Z_DES , fx, fy, cx, cy, tag_size):
         half = tag_size / 2.0
         corners = np.array([
