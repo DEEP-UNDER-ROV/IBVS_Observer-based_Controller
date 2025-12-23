@@ -1,35 +1,31 @@
 #!/usr/bin/env python3
-
 import rclpy
 from rclpy.node import Node
+
 import numpy as np
 import cv2
 import math
 
-from geometry_msgs.msg import PolygonStamped, PoseStamped
+from cv_bridge import CvBridge
+from std_msgs.msg import Header
+from geometry_msgs.msg import PoseStamped, Vector3Stamped, PolygonStamped, Point32
 
-from ibvs.constants import FX, FY, CX, CY, TAG_SIZE, DIST_COEFFS
-
-
-class PnPRelativePoseNode(Node):
-
-    def rotation_matrix_to_euler(self, R):
-        roll = math.atan2(R[2, 1], R[2, 2])
-        pitch = math.asin(-R[2, 0])
-        yaw = math.atan2(R[1, 0], R[0, 0])
-        return roll, pitch, yaw
+from ibvs.constants import *
 
 
+class PNP_Node(Node):
     def __init__(self):
-        super().__init__("pnp_relative_pose_node")
+        super().__init__("PNP_Node")
+        self.bridge = CvBridge()
 
-        self.sub = self.create_subscription(
-            PolygonStamped, "/apriltag/corners", self.cb, 10
-        )
+        #Subscriber
+        self.sub = self.create_subscription(PolygonStamped, "/apriltag/corners", self.cb, 10)
 
-        self.pub = self.create_publisher(
-            PoseStamped, "/mavros/vision_pose/pose", 10
-        )
+        #Publisher
+        self.pub = self.create_publisher(PoseStamped, "/mavros/vision_pose/pose", 10)
+        self.pose_pub = self.create_publisher(PoseStamped, "/pnp/pose", 10)
+        self.tvec_pub = self.create_publisher(Vector3Stamped, "/pnp/tvec", 10)
+        self.rpy_pub  = self.create_publisher(Vector3Stamped, "/pnp/rpy", 10)
 
         self.camera_matrix = np.array([
             [FX, 0, CX],
@@ -37,11 +33,11 @@ class PnPRelativePoseNode(Node):
             [0,  0,  1]
         ], dtype=np.float32)
 
-        self.dist_coeffs = np.array(DIST_COEFFS, dtype=np.float32)
+        self.dist_coeffs = np.zeros((5, 1), dtype=np.float64)
 
         s = TAG_SIZE / 2.0
         self.object_points = np.array([
-        [-s,  s, 0],
+            [-s,  s, 0],
             [ s,  s, 0],
             [ s, -s, 0],
             [-s, -s, 0]
@@ -52,7 +48,7 @@ class PnPRelativePoseNode(Node):
         self.t0 = None
         self.R0 = None
 
-        self.get_logger().info("PnP RELATIVE pose node initialized")
+        self.get_logger().info("PnP Node Initialized")
 
     def cb(self, msg):
         if len(msg.polygon.points) != 4:
@@ -64,18 +60,10 @@ class PnPRelativePoseNode(Node):
         )
 
         success, rvec, tvec = cv2.solvePnP(
-            self.object_points,
-            image_pts,
-            self.camera_matrix,
-            self.dist_coeffs,
-            flags=cv2.SOLVEPNP_IPPE_SQUARE
+            self.object_points, image_pts, self.camera_matrix, self.dist_coeffs, flags=cv2.SOLVEPNP_IPPE_SQUARE
         )
 
-        if not success:
-            return
-
-        # Reject flipped IPPE solution
-        if tvec[2] <= 0:
+        if not success or tvec[2] <= 0::
             return
 
         R, _ = cv2.Rodrigues(rvec)
@@ -101,13 +89,35 @@ class PnPRelativePoseNode(Node):
             return
 
         # Relative translation (tag frame)
-        t_rel = tvec - self.t0
+        t_rel = self.R0.T @ (tvec - self.t0)
 
         # Relative rotation
         R_rel = self.R0.T @ R
 
-        # ===== DEBUG: RELATIVE POSE =====
-        rel_roll, rel_pitch, rel_yaw = self.rotation_matrix_to_euler(R_rel)
+        # --- Convert to MAVROS ENU frame ---
+        tx, ty, tz = t_rel.flatten()
+
+        pose = PoseStamped()
+        pose.header.stamp = msg.header.stamp
+        pose.header.frame_id = "vision"
+
+        pose.pose.position.x = float(tz)
+        pose.pose.position.y = float(-tx)
+        pose.pose.position.z = float(-ty)
+
+        # --- Rotation to quaternion ---
+        roll = math.atan2(R_rel[2, 1], R_rel[2, 2])
+        pitch = math.asin(-R_rel[2, 0])
+        yaw = math.atan2(R_rel[1, 0], R_rel[0, 0])
+
+        q = self.euler_to_quaternion(roll, pitch, yaw)
+
+        pose.pose.orientation.x = q[0]
+        pose.pose.orientation.y = q[1]
+        pose.pose.orientation.z = q[2]
+        pose.pose.orientation.w = q[3]
+
+        self.pub.publish(pose)
 
         self.get_logger().info(
             "[RELATIVE] position [m]: "
@@ -119,31 +129,6 @@ class PnPRelativePoseNode(Node):
             f"pitch={math.degrees(rel_pitch):+.2f}, "
             f"yaw={math.degrees(rel_yaw):+.2f}"
         )
-
-        # Camera frame → body frame (ENU)
-        tx, ty, tz = t_rel.flatten()
-
-        pose = PoseStamped()
-        pose.header.stamp = msg.header.stamp
-        pose.header.frame_id = "vision"
-
-        pose.pose.position.x = float(tz)
-        pose.pose.position.y = float(-tx)
-        pose.pose.position.z = float(-ty)
-
-        # Rotation → quaternion
-        yaw = math.atan2(R_rel[1, 0], R_rel[0, 0])
-        pitch = math.asin(-R_rel[2, 0])
-        roll = math.atan2(R_rel[2, 1], R_rel[2, 2])
-
-        q = self.euler_to_quaternion(roll, pitch, yaw)
-
-        pose.pose.orientation.x = q[0]
-        pose.pose.orientation.y = q[1]
-        pose.pose.orientation.z = q[2]
-        pose.pose.orientation.w = q[3]
-
-        self.pub.publish(pose)
 
     @staticmethod
     def euler_to_quaternion(roll, pitch, yaw):
@@ -176,4 +161,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
