@@ -6,7 +6,7 @@ import numpy as np
 from geometry_msgs.msg import PoseStamped, Vector3Stamped, Point
 from std_msgs.msg import Float32MultiArray
 from mavros_msgs.msg import PositionTarget
-from tf_transformations import quaternion_matrix
+from scipy.spatial.transform import Rotation as R
 
 from ibvs.constants import *
 
@@ -25,7 +25,7 @@ class IBVSControllerNode(Node):
         self.latest_tvec = None
 
         # --- Subscriber ---
-        self.sub = self.create_subscription(PoseStamped,"/mavros/vision_pose/pose",self.pose_cb,10)
+        self.sub = self.create_subscription(PoseStamped,"/mavros/vision_pose/pose",self.cb_pose,10)
         self.sub_tvec = self.create_subscription(Vector3Stamped, "/pnp/tvec", self.cb_tvec, 10)
 
         # --- Publisher ---
@@ -36,10 +36,10 @@ class IBVSControllerNode(Node):
         self.timer = self.create_timer(0.05, self.loop)
         self.get_logger().info("IBVS Scenario 3 (Position-based) started")
 
-    def pose_cb(self, msg):
+    def cb_pose(self, msg):
         self.latest_pose = msg
 
-    def tvec_cb(self, msg):
+    def cb_tvec(self, msg):
         self.latest_tvec = np.array([msg.vector.x,
                                      msg.vector.y,
                                      msg.vector.z])
@@ -53,7 +53,7 @@ class IBVSControllerNode(Node):
         q = self.latest_pose.pose.orientation
 
         # Body → Local ENU rotation
-        R_BL = quaternion_matrix([q.x, q.y, q.z, q.w])[0:3, 0:3]
+        R_BL = R.from_quat([q.x, q.y, q.z, q.w]).as_matrix()
 
         # tvec: tag position wrt camera (OpenCV frame)
         e_cam = self.latest_tvec - self.tvec_des   # [Xc, Yc, Zc]
@@ -92,7 +92,7 @@ class IBVSControllerNode(Node):
 
         cmd.yaw = 0.0
 
-        self.cmd_pub.publish(cmd)
+        self.pub.publish(cmd)
 
         # Debug
         err_msg = Float32MultiArray()
