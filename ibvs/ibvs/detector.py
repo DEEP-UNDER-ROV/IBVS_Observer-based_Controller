@@ -201,8 +201,8 @@ class IBVS_Telemetry(Node):
             cv2.putText(stream, f"Wz:{v.angular.z:+.2f}", (20,125), 2, 0.5, (0,200,255), 2)
 
         if self.current_tvec is not None:
-            d = self.current_tvec.vector
-            cv2.putText(stream, f"Range:{d.z:+.2f}", (20,25), 2,  0.5, (0,255,255), 2)
+            z_val = self.current_tvec.vector.z
+            cv2.putText(stream, f"Range:{z_val:+.3f}", (20,25), 2,  0.5, (0,255,255), 2)
             
         if self.current_pos is not None:
             p = self.current_pos
