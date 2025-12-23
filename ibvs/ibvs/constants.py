@@ -33,3 +33,8 @@ QGC_PORT = 5600
 # --- Transformation Matrix ---
 R_CB = np.array([[0,0,1],[1,0,0],[0,1,0]], dtype=float)
 P_CB = np.array([P_CB_X, P_CB_Y, P_CB_Z])
+
+MAX_TAU_Z = 0.3
+MAX_TAU_YAW = 0.3
+MAX_TAU_X = 0.3
+MAX_TAU_Y = 0.3
