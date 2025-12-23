@@ -41,14 +41,14 @@ class IBVS_Telemetry(Node):
 
         # --- ROS Publishers ---
         self.corners_pub = self.create_publisher(PolygonStamped, "/apriltag/corners", 10)
-        self.img_sub = self.create_subscription(Image, "/camera/color/image_raw", 10)
         self.depth_pub = self.create_publisher(Image, "/camera/depth/image_raw", 10)
-        self.compressed_pub = self.create_publisher(CompressedImage, "/camera/image/raw_compressed", 10)
+        self.raw_img_pub = self.create_publisher(Image, "/camera/image/raw", 10)
+        self.comp_img_pub = self.create_publisher(CompressedImage, "/camera/image/raw_compressed", 10)
 
         # --- ROS Subscriptions ---
         
         self.pose_sub = self.create_subscription(PoseStamped, "/mavros/vision_pose/pose", self.pose_cb, 10)        
-        self.pos_sub = self.create_publisher(Point, "/ibvs/pos", self.pos_cb, 10)      
+        self.pos_sub = self.create_subscription(Point, "/ibvs/pos", self.pos_cb, 10)      
         self.vel_sub = self.create_subscription(Twist, "/ibvs/vel", self.vel_cb, 10)
         self.err_sub = self.create_subscription(Float32MultiArray, "/ibvs/error", self.err_cb, 10)
         
