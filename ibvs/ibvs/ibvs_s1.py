@@ -41,9 +41,9 @@ class IBVSControllerNode(Node):
             W=0.40,
             H=0.25,
         )
-        self.D = build_D_matrix(0.5)
+        self.D = build_D_matrix(0.2)
 
-        self.Fz_bias = -3.0  # sinking compensation (tunable)
+        self.Fz_bias = -0.3  # sinking compensation (tunable)
 
     def force_to_pwm(self, u, u_max, pwm_center=1500, pwm_range=400):
         u = np.clip(u, -u_max, u_max)
