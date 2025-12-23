@@ -10,7 +10,7 @@ from pupil_apriltags import Detector
 
 from std_msgs.msg import Float32MultiArray
 from geometry_msgs.msg import PolygonStamped, Point32, PoseStamped, Twist, Vector3Stamped
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CompressedImage
 
 from ibvs.constants import *
 
@@ -41,8 +41,9 @@ class IBVS_Telemetry(Node):
 
         # --- ROS Publishers ---
         self.corners_pub = self.create_publisher(PolygonStamped, "/apriltag/corners", 10)
-        self.img_sub = self.create_subscription(Image, "/camera/color/image_raw", self.img_cb, 10)
+        self.img_sub = self.create_subscription(Image, "/camera/color/image_raw", 10)
         self.depth_pub = self.create_publisher(Image, "/camera/depth/image_raw", 10)
+        self.compressed_pub = self.create_publisher(CompressedImage, "/camera/image/raw_compressed", 10)
 
         # --- ROS Subscriptions ---
         
@@ -111,14 +112,12 @@ class IBVS_Telemetry(Node):
 
     def loop(self):
         frames = self.pipeline.poll_for_frames()
-        if not frames:
-            return
+        if not frames: return
 
         frames = self.align.process(frames)
         color_frame = frames.get_color_frame()
         depth_frame = frames.get_depth_frame()
-        if not color_frame or not depth_frame:
-            return
+        if not color_frame or not depth_frame: return
 
         color = np.asanyarray(color_frame.get_data())
         depth = np.asanyarray(depth_frame.get_data())
@@ -127,6 +126,7 @@ class IBVS_Telemetry(Node):
         # 1. Detect Tags (at 1280x720)
         detections = self.detector.detect(gray)
         undistorted_pts = None
+        raw_pts = None
         
         if detections:
             tag = detections[0]
@@ -157,10 +157,9 @@ class IBVS_Telemetry(Node):
             pts_u_draw = (pts_u * [sx, sy]).astype(np.int32)
 
             cv2.polylines(stream, [pts_u_draw], True, (0, 255, 0), 2)
-        
-        for i, (u, v) in enumerate(pts_u_draw):
-                cv2.circle(stream, (u, v), 5, (255, 0, 0), -1)
-                cv2.putText(stream, f"{i+1}", (u+6, v-6), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            for i, (u, v) in enumerate(pts_u_draw):
+                    cv2.circle(stream, (u, v), 5, (255, 0, 0), -1)
+                    cv2.putText(stream, f"{i+1}", (u+6, v-6), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
         if raw_pts is not None:
             pts_r = np.asarray(raw_pts).reshape(4, 2)
@@ -194,6 +193,14 @@ class IBVS_Telemetry(Node):
         depth_msg = self.bridge.cv2_to_imgmsg(depth, encoding="16UC1")
         depth_msg.header.stamp = self.get_clock().now().to_msg()
         self.depth_pub.publish(depth_msg)
+
+        msg = CompressedImage()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.format = "jpeg"
+        success, encode_buffer = cv2.imencode(".jpg", stream, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        if success:
+            msg.data = np.array(encode_buffer).tobytes()
+            self.compressed_pub.publish(msg)
 
 def main():
     rclpy.init()
