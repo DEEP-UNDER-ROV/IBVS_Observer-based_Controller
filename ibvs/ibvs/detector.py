@@ -224,8 +224,9 @@ class IBVS_Telemetry(Node):
         if self.current_rc_out is not None:
             mx, my = 20, 230 
             for i in range(8):
-                pwm = self.current_rc_out.pwm[i]
-                cv2.putText(stream, f"M{i+1}: {pwm}", (mx, my + (i * 20)), 2, 0.5, (0, 255, 0), 1)
+                if i < len(self.current_rc_out.channels):
+                    pwm = self.current_rc_out.channels[i]
+                    cv2.putText(stream, f"M{i+1}: {pwm}", (mx, my + (i * 20)), 2, 0.5, (0, 255, 0), 1)
             
         # Push to QGC
         self.video_writer.write(stream)
