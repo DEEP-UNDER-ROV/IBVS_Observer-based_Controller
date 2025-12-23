@@ -134,7 +134,7 @@ class IBVSControllerNode(Node):
             # --- NORMAL IBVS POSITION INTEGRATION ---
             self.p_cmd += Vb.flatten() * dt
             self.p_cmd = np.clip(self.p_cmd, -MAX_OFFSET, MAX_OFFSET)
-            self.p_cmd *= 0.995 
+            self.p_cmd *= 0.95 
    
         self.pos_pub.publish(Point(
             x=float(self.p_cmd[0]),
