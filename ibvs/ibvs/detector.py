@@ -209,7 +209,6 @@ class IBVS_Telemetry(Node):
         depth_msg = self.bridge.cv2_to_imgmsg(depth, encoding="16UC1")
         depth_msg.header.stamp = self.get_clock().now().to_msg()
         self.depth_pub.publish(depth_msg)
-)
 
 def main():
     rclpy.init()
