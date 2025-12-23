@@ -11,7 +11,7 @@ DIST_COEFFS = [-0.053665, 0.0314185, -0.00216851, 0.00262024, 0.0]
 
 # --- Transformation Matrix ---
 R_CB = np.array([[0,0,1],[1,0,0],[0,1,0]], dtype=float)
-p_CB = np.array([P_CB_X, P_CB_Y, P_CB_Z])
+P_CB = np.array([P_CB_X, P_CB_Y, P_CB_Z])
 
 # --- BlueROV2 Physical Offsets (Camera relative to CoG) ---
 P_CB_X = -0.17
