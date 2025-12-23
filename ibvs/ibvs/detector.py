@@ -43,16 +43,27 @@ class IBVS_Telemetry(Node):
         self.corners_pub = self.create_publisher(PolygonStamped, "/apriltag/corners", 10)
         self.img_sub = self.create_subscription(Image, "/camera/color/image_raw", self.img_cb, 10)
         self.depth_pub = self.create_publisher(Image, "/camera/depth/image_raw", 10)
-        
-        # --- ROS Subscriptions ---
-        self.vel_sub = self.create_subscription(Twist, "/mavros/setpoint_velocity/cmd_vel_unstamped", self.vel_cb, 10)
-        self.pose_sub = self.create_subscription(PoseStamped, "/mavros/vision_pose/pose", self.pose_cb, 10)
-        self.err_sub = self.create_subscription(Float32MultiArray, "/ibvs/error", self.err_cb, 10)
 
-        self.bridge = CvBridge()
+        # --- ROS Subscriptions ---
+        
+        self.pose_sub = self.create_subscription(PoseStamped, "/mavros/vision_pose/pose", self.pose_cb, 10)        
+        self.pos_sub = self.create_publisher(Point, "/ibvs/pos", self.pos_cb, 10)      
+        self.vel_sub = self.create_subscription(Twist, "/ibvs/vel", self.vel_cb, 10)
+        self.err_sub = self.create_subscription(Float32MultiArray, "/ibvs/error", self.err_cb, 10)
+        
+
         self.current_vel = None
+        self.current_pos = None
         self.current_pose = None
         self.current_err = None
+
+        self.camera_matrix = np.array([
+            [FX, 0, CX],
+            [0, FY, CY],
+            [0,  0,  1]
+        ], dtype=np.float32)
+
+        self.dist_coeffs = np.array(DIST_COEFFS, dtype=np.float32)
 
         # --- RealSense Setup (High Res for Accuracy) ---
         self.pipeline = rs.pipeline()
@@ -60,7 +71,9 @@ class IBVS_Telemetry(Node):
         cfg.enable_stream(rs.stream.color, 1280, 720, rs.format.bgr8, 30)
         cfg.enable_stream(rs.stream.depth, 1280, 720, rs.format.z16, 30)
         self.pipeline.start(cfg)
+        
         self.align = rs.align(rs.stream.color)
+        self.bridge = CvBridge()
         
         # --- AprilTag Detector Setup ---
         self.detector = Detector(families="tag36h11", nthreads=4, quad_decimate=1.0, refine_edges=True)
@@ -70,7 +83,7 @@ class IBVS_Telemetry(Node):
         gst_pipeline = (
             f"appsrc ! videoconvert ! "
             f"video/x-raw,width=640,height=480,format=I420 ! "
-            f"x264enc tune=zerolatency bitrate=1500 speed-preset=ultrafast ! "
+            f"x264enc tune=zerolatency bitrate=1000 speed-preset=ultrafast ! "
             f"rtph264pay config-interval=1 pt=96 ! "
             f"udpsink host={QGC_IP} port={QGC_PORT} sync=false"
         )
@@ -83,9 +96,11 @@ class IBVS_Telemetry(Node):
         self.get_logger().info(f"Streaming to QGC at {QGC_IP}:{QGC_PORT}")
 
     def vel_cb(self, msg): self.current_vel = msg
+    def pos_cb(self, msg): self.current_pos = msg
     def pose_cb(self, msg): self.current_pose = msg
     def err_cb(self, msg): self.current_err = msg
 
+    @staticmethod
     def order_corners_ccw(self, pts):
         center = np.mean(pts, axis=0)
         angles = np.arctan2(pts[:,1] - center[1], pts[:,0] - center[0])
@@ -99,9 +114,9 @@ class IBVS_Telemetry(Node):
         if not frames:
             return
 
-        aligned = self.align.process(frames)
-        color_frame = aligned.get_color_frame()
-        depth_frame = aligned.get_depth_frame()
+        frames = self.align.process(frames)
+        color_frame = frames.get_color_frame()
+        depth_frame = frames.get_depth_frame()
         if not color_frame or not depth_frame:
             return
 
@@ -111,80 +126,69 @@ class IBVS_Telemetry(Node):
         
         # 1. Detect Tags (at 1280x720)
         detections = self.detector.detect(gray)
-        raw_pts = None
+        undistorted_pts = None
         
         if detections:
             tag = detections[0]
             raw_pts = self.order_corners_ccw(tag.corners.astype(np.float32))
-
-            # Undistort (Precision IBVS)
-            camera_matrix = np.array([[FX, 0, CX], [0, FY, CY], [0, 0, 1]])
-            dist_coeffs = np.array(DIST_COEFFS)
-            pts_reshaped = raw_pts.reshape(-1, 1, 2)
-            undistorted_pts = cv2.undistortPoints(pts_reshaped, camera_matrix, dist_coeffs, R=None, P=camera_matrix)
-            tag_pts_to_publish = raw_pts
+            pts = raw_pts.reshape(-1, 1, 2)
+            undistorted = cv2.undistortPoints(pts, self.camera_matrix, self.dist_coeffs, P=self.camera_matrix)          
+            undistorted_pts = undistorted.reshape(-1, 2)
 
             # Publish corners for the IBVS node
-            poly_msg = PolygonStamped()
-            poly_msg.header.stamp = self.get_clock().now().to_msg()
-            poly_msg.header.frame_id = "camera_color_optical_frame"
-            for (u, v) in tag_pts_to_publish:
+            poly = PolygonStamped()
+            poly.header.stamp = self.get_clock().now().to_msg()
+            poly.header.frame_id = "camera_color_optical_frame"
+            
+            for (u, v) in undistorted_pts:
                 p = Point32()
-                p.x, p.y = float(u), float(v)
-                poly_msg.polygon.points.append(p)
-            self.corners_pub.publish(poly_msg)
+                p.x, p.y, p.z = float(u), float(v), 0.0
+                poly.polygon.points.append(p)
+                
+            self.corners_pub.publish(poly)
 
         # 2. Draw & Stream (Downscale to 640x480)
-        stream_frame = cv2.resize(color, (640, 480))
-        scale_x, scale_y = 640/1280, 480/720
-        
-        self.desired = self.desired_corners_from_Z(Z_DES)
-        desired_scaled = (self.desired * [scale_x, scale_y]).astype(np.int32)
+        stream = cv2.resize(color, (640, 480))
+        sx, sy = 640 / 1280, 480 / 720
         
         # Use polylines for the red box (cleaner and avoids manual indexing)
-        cv2.polylines(stream_frame, [desired_scaled], True, (0, 0, 255), 2)
-        
-        for i, (x, y) in enumerate(desired_scaled):
-            cv2.circle(stream_frame, (int(x), int(y)), 4, (0, 0, 255), -1)
-            cv2.putText(stream_frame, f"D{i+1}", (int(x) + 5, int(y) - 5),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 1 )
+        if undistorted_pts is not None:
+            pts_u = np.asarray(undistorted_pts).reshape(4, 2)
+            pts_u_draw = (pts_u * [sx, sy]).astype(np.int32)
 
-        # Draw scaled tag
-        if detections:
-            pts_scaled = (raw_pts * [scale_x, scale_y]).astype(np.int32)
-            cv2.polylines(stream_frame, [pts_scaled], True, (0, 255, 0), 2)
-            
-            for i, (u, v) in enumerate(pts_scaled):
-                cv2.circle(stream_frame, (int(u), int(v)), 5, (255, 0, 0), -1)
-                cv2.putText(stream_frame, f"{i+1}", (int(u)+6, int(v)-6),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            cv2.polylines(stream, [pts_u_draw], True, (0, 255, 0), 2)
         
-        if self.current_vel:
+        for i, (u, v) in enumerate(pts_u_draw):
+                cv2.circle(stream, (u, v), 5, (255, 0, 0), -1)
+                cv2.putText(stream, f"{i+1}", (u+6, v-6), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+        if raw_pts is not None:
+            pts_r = np.asarray(raw_pts).reshape(4, 2)
+            pts_r_draw = (pts_r * [sx, sy]).astype(np.int32)
+        
+            cv2.polylines(stream, [pts_r_draw], True, (0, 180, 180), 1)
+        
+        if self.current_vel is not None:
             v = self.current_vel
-            cv2.putText(stream_frame, f"Vx:{v.linear.x:+.2f}", (20,25), 2,  0.5, (0,255,255), 2)
-            cv2.putText(stream_frame, f"Vy:{v.linear.y:+.2f}", (20,45), 2,  0.5, (0,255,255), 2)
-            cv2.putText(stream_frame, f"Vz:{v.linear.z:+.2f}", (20,65), 2,  0.5, (0,255,255), 2)
-            cv2.putText(stream_frame, f"Wx:{v.angular.x:+.2f}", (20,85), 2, 0.5, (0,200,255), 2)
-            cv2.putText(stream_frame, f"Wy:{v.angular.y:+.2f}", (20,105), 2, 0.5, (0,200,255), 2)
-            cv2.putText(stream_frame, f"Wz:{v.angular.z:+.2f}", (20,125), 2, 0.5, (0,200,255), 2)
+            cv2.putText(stream, f"Vx:{v.linear.x:+.2f}", (20,25), 2,  0.5, (0,255,255), 2)
+            cv2.putText(stream, f"Vy:{v.linear.y:+.2f}", (20,45), 2,  0.5, (0,255,255), 2)
+            cv2.putText(stream, f"Vz:{v.linear.z:+.2f}", (20,65), 2,  0.5, (0,255,255), 2)
+            cv2.putText(stream, f"Wx:{v.angular.x:+.2f}", (20,85), 2, 0.5, (0,200,255), 2)
+            cv2.putText(stream, f"Wy:{v.angular.y:+.2f}", (20,105), 2, 0.5, (0,200,255), 2)
+            cv2.putText(stream, f"Wz:{v.angular.z:+.2f}", (20,125), 2, 0.5, (0,200,255), 2)
 
         # ---------------- Error Overlay ----------------
         if self.current_err is not None:
-            e = self.current_err.data
+            e = np.asarray(self.current_err.data)
             
-            x0 = 145     # left position
-            y0 = 25      # top position
-            dy = 20      # vertical spacing
+            x0, y0, dy = 145, 25, 20
             for i in range(4):
-                ex = e[i*3 + 0]
-                ey = e[i*3 + 1]
-                ez = e[i*3 + 2]
-        
-                cv2.putText(stream_frame, f"P{i+1}: ex={ex:+.2f}px  ey={ey:+.2f}px  ez={ez:+.2f} m",
+                ex, ey, ez = e[i*3:(i+1)*3]
+                cv2.putText(stream, f"P{i+1}: ex={ex:+.2f}px  ey={ey:+.2f}px  ez={ez:+.2f} m",
                     (x0, y0 + i * dy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
 
         # Push to QGC
-        self.video_writer.write(stream_frame)
+        self.video_writer.write(stream)
 
         # Publish Depth Map
         depth_msg = self.bridge.cv2_to_imgmsg(depth, encoding="16UC1")
