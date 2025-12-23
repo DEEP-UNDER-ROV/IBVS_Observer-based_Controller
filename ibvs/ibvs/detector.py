@@ -48,7 +48,7 @@ class IBVS_Telemetry(Node):
 
         # --- ROS Subscriptions ---
         self.rc_sub = self.create_subscription(OverrideRCIn, "/mavros/rc/override",self.cb_rc, 10)
-        self.pos_sub = self.create_subscription(Point32, "/ibvs/pos", self.cb_pos, 10)      
+        self.pos_sub = self.create_subscription(Point, "/ibvs/pos", self.cb_pos, 10)      
         self.vel_sub = self.create_subscription(Twist, "/ibvs/vel", self.cb_vel, 10)
         self.err_sub = self.create_subscription(Float32MultiArray, "/ibvs/error", self.cb_err, 10)
         self.tvec_sub = self.create_subscription(Vector3Stamped, "/pnp/tvec", self.cb_tvec, 10)
@@ -193,29 +193,29 @@ class IBVS_Telemetry(Node):
         
         if self.current_vel is not None:
             v = self.current_vel
-            cv2.putText(stream, f"Vx:{v.linear.x:+.2f}", (20,25), 2,  0.5, (0,255,255), 2)
-            cv2.putText(stream, f"Vy:{v.linear.y:+.2f}", (20,45), 2,  0.5, (0,255,255), 2)
-            cv2.putText(stream, f"Vz:{v.linear.z:+.2f}", (20,65), 2,  0.5, (0,255,255), 2)
-            cv2.putText(stream, f"Wx:{v.angular.x:+.2f}", (20,85), 2, 0.5, (0,200,255), 2)
-            cv2.putText(stream, f"Wy:{v.angular.y:+.2f}", (20,105), 2, 0.5, (0,200,255), 2)
-            cv2.putText(stream, f"Wz:{v.angular.z:+.2f}", (20,125), 2, 0.5, (0,200,255), 2)
+            cv2.putText(stream, f"Vx:{v.linear.x:+.2f}", (20,25), 2,  0.5, (0,255,128), 2)
+            cv2.putText(stream, f"Vy:{v.linear.y:+.2f}", (20,45), 2,  0.5, (0,255,128), 2)
+            cv2.putText(stream, f"Vz:{v.linear.z:+.2f}", (20,65), 2,  0.5, (0,255,128), 2)
+            cv2.putText(stream, f"Wx:{v.angular.x:+.2f}", (20,85), 2, 0.5, (0,200,128), 2)
+            cv2.putText(stream, f"Wy:{v.angular.y:+.2f}", (20,105), 2, 0.5, (0,200,128), 2)
+            cv2.putText(stream, f"Wz:{v.angular.z:+.2f}", (20,125), 2, 0.5, (0,200,128), 2)
 
         if self.current_tvec is not None:
             z_val = self.current_tvec.vector.z
-            cv2.putText(stream, f"Range:{z_val:+.3f}", (20,25), 2,  0.5, (0,255,255), 2)
+            cv2.putText(stream, f"Range:{z_val:+.3f}", (300,25), 2,  0.5, (0,255,0), 2)
             
         if self.current_pos is not None:
             p = self.current_pos
-            cv2.putText(stream, f"X:{p.x:+.2f}", (20,45), 2,  0.5, (0,255,255), 2)
-            cv2.putText(stream, f"Y:{p.y:+.2f}", (20,65), 2,  0.5, (0,255,255), 2)
-            cv2.putText(stream, f"Z:{p.z:+.2f}", (20,85), 2,  0.5, (0,255,255), 2)
+            cv2.putText(stream, f"Offset X:{p.x:+.2f}m", (300,45), 2,  0.5, (0,255,0), 2)
+            cv2.putText(stream, f"Offset Y:{p.y:+.2f}m", (300,65), 2,  0.5, (0,255,0), 2)
+            cv2.putText(stream, f"Offset Z:{p.z:+.2f}m", (300,85), 2,  0.5, (0,255,0), 2)
 
         if self.current_rc is not None:
             rc = self.current_rc
-            cv2.putText(stream, f"Surge :{rc.channels[0]:+.2f}", (20,85), 2,  0.5, (0,255,255), 2)
-            cv2.putText(stream, f"Sway  :{rc.channels[1]:+.2f}", (20,105), 2,  0.5, (0,255,255), 2)
-            cv2.putText(stream, f"Heave :{rc.channels[2]:+.2f}", (20,45), 2,  0.5, (0,255,255), 2)
-            cv2.putText(stream, f"Yaw   :{rc.channels[5]:+.2f}", (20,65), 2,  0.5, (0,255,255), 2)
+            cv2.putText(stream, f"Surge :{rc.channels[4]:+.2f}", (300,85), 2,  0.5, (0,255,0), 2)
+            cv2.putText(stream, f"Sway  :{rc.channels[5]:+.2f}", (300,105), 2,  0.5, (0,255,0), 2)
+            cv2.putText(stream, f"Heave :{rc.channels[2]:+.2f}", (300,45), 2,  0.5, (0,255,0), 2)
+            cv2.putText(stream, f"Yaw   :{rc.channels[3]:+.2f}", (300,65), 2,  0.5, (0,255,0), 2)
             
         # Push to QGC
         self.video_writer.write(stream)
