@@ -10,20 +10,17 @@ CY = 369.740
 # Note: k3 is not in your table, so we use 0.0
 DIST_COEFFS = [-0.053665, 0.0314185, -0.00216851, 0.00262024, 0.0]
 
-# --- Physical Target Parameters ---
-TAG_SIZE = 0.205  # Meters
-
 # --- BlueROV2 Physical Offsets (Camera relative to CoG) ---
 P_CB_X = -0.17
 P_CB_Y = 0.0
 P_CB_Z = 0.02
 
 # --- IBVS Control Parameters ---
-LAMBDA_P = 0.1
+LAMBDA_P = 0.05
 Z_DES = 1.0
-DESIRED_SIZE = 130
+TAG_SIZE = 0.207
 PATCH = 2
 
 # --- Velocity Limits ---
 MAX_LIN_VEL = 0.2
-MAX_ANG_VEL = 0.3
+MAX_ANG_VEL = 0.2
