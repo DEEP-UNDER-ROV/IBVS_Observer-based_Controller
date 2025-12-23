@@ -48,7 +48,7 @@ class IBVS_Telemetry(Node):
         # --- ROS Subscriptions ---
         
         self.pose_sub = self.create_subscription(PoseStamped, "/mavros/vision_pose/pose", self.pose_cb, 10)        
-        self.pos_sub = self.create_subscription(Point, "/ibvs/pos", self.pos_cb, 10)      
+        self.pos_sub = self.create_subscription(Point32, "/ibvs/pos", self.pos_cb, 10)      
         self.vel_sub = self.create_subscription(Twist, "/ibvs/vel", self.vel_cb, 10)
         self.err_sub = self.create_subscription(Float32MultiArray, "/ibvs/error", self.err_cb, 10)
         
