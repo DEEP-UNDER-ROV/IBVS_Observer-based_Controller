@@ -185,7 +185,7 @@ class IBVS_Telemetry(Node):
         if self.current_err is not None:
             e = np.asarray(self.current_err.data)
             
-            x0, y0, dy = 145, 25, 20
+            x0, y0, dy = 153, 25, 20
             for i in range(4):
                 ex, ey, ez = e[i*3:(i+1)*3]
                 cv2.putText(stream, f"P{i+1}: ex={ex:+.2f}px  ey={ey:+.2f}px  ez={ez:+.2f} m",
@@ -202,7 +202,7 @@ class IBVS_Telemetry(Node):
 
         if self.current_tvec is not None:
             z_val = self.current_tvec.vector.z
-            cv2.putText(stream, f"Range:{z_val:+.3f}", (20,25), 2,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Range:{z_val:.3f} m", (20,25), 2,  0.5, (51,255,153), 2)
             
         if self.current_pos is not None:
             p = self.current_pos
