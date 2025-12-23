@@ -119,16 +119,14 @@ class PNP_Node(Node):
 
         self.pub.publish(pose)
 
-        self.get_logger().info(
-            "[RELATIVE] position [m]: "
-            f"x={t_rel[2][0]:+.4f}, "
-            f"y={-t_rel[0][0]:+.4f}, "
-            f"z={-t_rel[1][0]:+.4f} | "
-            "RPY [deg]: "
-            f"roll={math.degrees(roll):+.2f}, "
-            f"pitch={math.degrees(pitch):+.2f}, "
-            f"yaw={math.degrees(yaw):+.2f}"
-        )
+        tvec_msg = Vector3Stamped()
+        tvec_msg.header = msg.header
+        tvec_msg.vector.x = float(tvec[0][0])
+        tvec_msg.vector.y = float(tvec[1][0])
+        tvec_msg.vector.z = float(tvec[2][0])
+        self.tvec_pub.publish(tvec_msg)
+
+    
 
     @staticmethod
     def euler_to_quaternion(roll, pitch, yaw):
