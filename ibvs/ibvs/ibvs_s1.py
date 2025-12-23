@@ -10,6 +10,7 @@ from cv_bridge import CvBridge
 from mavros_msgs.msg import OverrideRCIn
 
 from ibvs.constants import *
+from ibvs.dynamics import *
 
 R_CB = np.array([[0,0,1],[1,0,0],[0,1,0]], dtype=float)
 p_CB = np.array([P_CB_X, P_CB_Y, P_CB_Z])
@@ -40,7 +41,7 @@ class IBVSControllerNode(Node):
             W=0.40,
             H=0.25,
         )
-        self.D = build_D_matrix(u0_linearize=0.5)
+        self.D = build_D_matrix(0.5)
 
         self.Fz_bias = -3.0  # sinking compensation (tunable)
 
@@ -120,8 +121,8 @@ class IBVSControllerNode(Node):
         Vb = (R_CB @ v_c) + np.cross(Wb.flatten(), P_CB).reshape(3, 1)
 
         nu = np.zeros(6)
-        nu[0:3] = v_b.flatten()
-        nu[3:6] = w_b.flatten()
+        nu[0:3] = Vb.flatten()
+        nu[3:6] = Wb.flatten()
 
         # Linearized acceleration estimate
         nu_dot = nu / 1.0
