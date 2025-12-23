@@ -4,6 +4,7 @@ from rclpy.node import Node
 import cv2
 import numpy as np
 import pyrealsense2 as rs
+
 from cv_bridge import CvBridge
 from pupil_apriltags import Detector
 
@@ -12,10 +13,6 @@ from geometry_msgs.msg import PolygonStamped, Point32, PoseStamped, Twist, Vecto
 from sensor_msgs.msg import Image
 
 from ibvs.constants import *
-
-# --- Streaming Config ---
-QGC_IP = "192.168.4.1"
-QGC_PORT = 5600
 
 class IBVS_Telemetry(Node):
     def desired_corners_from_Z(self, Z_des):
@@ -40,14 +37,14 @@ class IBVS_Telemetry(Node):
     
     def __init__(self):
         super().__init__("IBVS_Telemetry")
-        self.get_logger().info("Initializing Detector node")
+        self.get_logger().info("Telemetry Node Started")
 
         # --- ROS Publishers ---
         self.corners_pub = self.create_publisher(PolygonStamped, "/apriltag/corners", 10)
         self.img_sub = self.create_subscription(Image, "/camera/color/image_raw", self.img_cb, 10)
         self.depth_pub = self.create_publisher(Image, "/camera/depth/image_raw", 10)
         
-        # --- ROS Subscriptions (for Overlay Telemetry) ---
+        # --- ROS Subscriptions ---
         self.vel_sub = self.create_subscription(Twist, "/mavros/setpoint_velocity/cmd_vel_unstamped", self.vel_cb, 10)
         self.pose_sub = self.create_subscription(PoseStamped, "/mavros/vision_pose/pose", self.pose_cb, 10)
         self.err_sub = self.create_subscription(Float32MultiArray, "/ibvs/error", self.err_cb, 10)
@@ -64,8 +61,6 @@ class IBVS_Telemetry(Node):
         cfg.enable_stream(rs.stream.depth, 1280, 720, rs.format.z16, 30)
         self.pipeline.start(cfg)
         self.align = rs.align(rs.stream.color)
-        
-        IMG_W, IMG_H = 1280, 720
         
         # --- AprilTag Detector Setup ---
         self.detector = Detector(families="tag36h11", nthreads=4, quad_decimate=1.0, refine_edges=True)
@@ -85,7 +80,7 @@ class IBVS_Telemetry(Node):
             self.get_logger().error("GStreamer failed! Check: gst-inspect-1.0 x264enc")
 
         self.timer = self.create_timer(0.033, self.loop)
-        self.get_logger().info(f"Streaming to QGC at {QGC_IP}:{QGC_PORT} (640x480)")
+        self.get_logger().info(f"Streaming to QGC at {QGC_IP}:{QGC_PORT}")
 
     def vel_cb(self, msg): self.current_vel = msg
     def pose_cb(self, msg): self.current_pose = msg
