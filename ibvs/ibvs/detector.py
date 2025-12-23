@@ -11,6 +11,7 @@ from pupil_apriltags import Detector
 from std_msgs.msg import Float32MultiArray
 from geometry_msgs.msg import PolygonStamped, Point32, PoseStamped, Twist, Point
 from sensor_msgs.msg import Image, CompressedImage
+from mavros_msgs.msg import OverrideRCIn
 
 from ibvs.constants import *
 
