@@ -66,6 +66,8 @@ class IBVS_Telemetry(Node):
 
         self.dist_coeffs = np.array(DIST_COEFFS, dtype=np.float32)
 
+        self.desired = self.desired_corners_from_Z(Z_DES)
+
         # --- RealSense Setup (High Res for Accuracy) ---
         self.pipeline = rs.pipeline()
         cfg = rs.config()
@@ -152,8 +154,9 @@ class IBVS_Telemetry(Node):
         stream = cv2.resize(color, (640, 480))
         sx, sy = 640 / 1280, 480 / 720
 
-        desired_scaled = (self.desired * [scale_x, scale_y]).astype(np.int32)
-        cv2.polylines(stream_frame, [desired_scaled], True, (0, 0, 255), 2)
+        desired_draw = (self.desired * np.array([sx, sy])).astype(np.int32)
+        desired_draw = desired_draw.reshape((-1, 1, 2))
+        cv2.polylines(stream, [desired_draw], True, (0, 0, 255), 2)
         
         # Use polylines for the red box (cleaner and avoids manual indexing)
         if undistorted_pts is not None:
