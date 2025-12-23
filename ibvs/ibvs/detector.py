@@ -44,6 +44,7 @@ class IBVS_Telemetry(Node):
 
         # --- ROS Publishers ---
         self.corners_pub = self.create_publisher(PolygonStamped, "/apriltag/corners", 10)
+        self.img_sub = self.create_subscription(Image, "/camera/color/image_raw", self.img_cb, 10)
         self.depth_pub = self.create_publisher(Image, "/camera/depth/image_raw", 10)
         
         # --- ROS Subscriptions (for Overlay Telemetry) ---
