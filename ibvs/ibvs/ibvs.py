@@ -38,10 +38,12 @@ class IBVSControllerNode(Node):
 
         # --- Tag visibility handling ---
         self.last_tag_time = None
+        self.tag_lost = True
         self.TAG_TIMEOUT = 0.5     # seconds
         self.DECAY_RATE = 0.9
         self.tag_lost = False
 
+        self.create_timer(0.1, self.timer_check_tag)
         self.get_logger().info("CAUTION !! IBVS Control ON")
 
     # ---------------------------------------------------------
@@ -74,9 +76,7 @@ class IBVSControllerNode(Node):
 
     # ---------------------------------------------------------
 
-    def interaction_matrix(self, u, v, Z):
-        x = (u - CX) / FX
-        y = (v - CY) / FY
+    def interaction_matrix(self, x, y, Z):
         return np.array([
             [-1/Z, 0.0,  x/Z,  x*y, -(1+x*x),  y],
             [0.0, -1/Z,  y/Z,  1+y*y, -x*y,   -x]
@@ -85,17 +85,19 @@ class IBVSControllerNode(Node):
     # ---------------------------------------------------------
 
     def cb_corners(self, msg):
-        now = self.get_clock().now()
-
-        # Update tag timestamp
-        self.last_tag_time = now
-        
         if self.depth_img is None:
             return
 
+        now = self.get_clock().now()
         dt = (now - self.last_time).nanoseconds * 1e-9
         self.last_time = now
         if dt <= 0:
+            return
+
+        self.last_tag_time = rclpy.time.Time.from_msg(msg.header.stamp)
+        self.tag_lost = False
+
+        if self.tag_lost:
             return
 
         rows = []
@@ -121,12 +123,12 @@ class IBVSControllerNode(Node):
             if Z < 0.2:
                 return
 
-            rows.append(self.interaction_matrix(u, v, Z))
             # normalized coordinates
             x = (u - CX) / FX
             y = (v - CY) / FY
             xd = (self.desired_pts[i, 0] - CX) / FX
             yd = (self.desired_pts[i, 1] - CY) / FY 
+            rows.append(self.interaction_matrix(x, y, Z))
             errs.extend([x - xd, y - yd])
 
         # --- IBVS control law ---
@@ -169,7 +171,7 @@ class IBVSControllerNode(Node):
 
         # Error logging
         err_msg = Float32MultiArray()
-        err_msg.data = errs.flatten().tolist()
+        err_msg.data = np.array(errs, dtype=np.float32).tolist()
         self.err_pub.publish(err_msg)
 
     def timer_check_tag(self):
@@ -177,12 +179,11 @@ class IBVSControllerNode(Node):
             return
 
         now = self.get_clock().now()
-        lost_time = (now - self.last_tag_time).nanoseconds * 1e-9
+        lost_dt = (now - self.last_tag_time).nanoseconds * 1e-9
 
-        if lost_time > self.TAG_TIMEOUT:
-            if not self.tag_lost:
-                self.get_logger().warn("AprilTag lost → IBVS control set to zero")
-                self.tag_lost = True
+        if lost_dt > self.TAG_TIMEOUT and not self.tag_lost:
+            self.tag_lost = True
+            self.get_logger().warn("AprilTag LOST → zero IBVS control")
 
             # Decay internal state
             self.p_hat *= self.DECAY_RATE
