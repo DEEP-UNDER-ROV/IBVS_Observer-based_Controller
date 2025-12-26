@@ -17,12 +17,9 @@ class IBVSControllerNode(Node):
         self.bridge = CvBridge()
 
         # Subscribers
-        self.sub_corners = self.create_subscription(
-            PolygonStamped, "/apriltag/corners", self.cb_corners, 10)
-        self.sub_depth = self.create_subscription(
-            Image, "/camera/depth/image_raw", self.cb_depth, 10)
-        self.sub_pnp = self.create_subscription(
-            Point, "/pnp/relative_position", self.cb_pnp, 10)
+        self.sub_corners = self.create_subscription(PolygonStamped, "/apriltag/corners", self.cb_corners, 10)
+        self.sub_depth = self.create_subscription(Image, "/camera/depth/image_raw", self.cb_depth, 10)
+        self.sub_pnp = self.create_subscription(Point, "/pnp/relative_position", self.cb_pnp, 10)
 
         # Publishers
         self.vel_pub = self.create_publisher(Twist, "/ibvs/vel", 10)
@@ -33,30 +30,31 @@ class IBVSControllerNode(Node):
         self.last_time = self.get_clock().now()
 
         # Desired image features
-        self.desired_pts = self.desired_corners(
-            Z_DES, FX, FY, CX, CY, TAG_SIZE)
+        self.desired_pts = self.desired_corners(Z_DES, FX, FY, CX, CY, TAG_SIZE)
 
         # --- Dynamic extension state ---
         self.p_hat = np.zeros(3)       # virtual IBVS position
         self.p_pnp = np.zeros(3)       # anchor (from PnP)
 
-        self.get_logger().info("IBVS Controller (pure x,y + anchored integrator) started")
+        self.get_logger().info("CAUTION !! IBVS Control ON")
 
     # ---------------------------------------------------------
 
-    def desired_corners(self, Z, fx, fy, cx, cy, tag_size):
-        s = tag_size / 2.0
+    def desired_corners(self, Z_DES , fx, fy, cx, cy, tag_size):
+        half = tag_size / 2.0
         corners = np.array([
-            [-s, -s, Z],
-            [ s, -s, Z],
-            [ s,  s, Z],
-            [-s,  s, Z],
+            [-half, -half, Z_DES],
+            [ half, -half, Z_DES],
+            [ half,  half, Z_DES],
+            [-half,  half, Z_DES],
         ])
 
-        pts = np.zeros((4, 2))
+        pts = np.zeros((4, 2), dtype=float)
+    
         for i, (X, Y, Z) in enumerate(corners):
-            pts[i, 0] = fx * X / Z + cx
-            pts[i, 1] = fy * Y / Z + cy
+            u = fx * (X / Z) + cx
+            v = fy * (Y / Z) + cy
+            pts[i] = [u, v]
         return pts
 
     # ---------------------------------------------------------
@@ -70,7 +68,9 @@ class IBVSControllerNode(Node):
 
     # ---------------------------------------------------------
 
-    def interaction_matrix(self, x, y, Z):
+     def interaction_matrix(self, u, v, Z):
+        x = (u - CX) / FX
+        y = (v - CY) / FY
         return np.array([
             [-1/Z, 0.0,  x/Z,  x*y, -(1+x*x),  y],
             [0.0, -1/Z,  y/Z,  1+y*y, -x*y,   -x]
@@ -150,15 +150,17 @@ class IBVSControllerNode(Node):
 
         # (Optional) publish velocity for logging
         vel = Twist()
-        vel.linear.x = float(v_ibvs[0])
-        vel.linear.y = float(v_ibvs[1])
-        vel.linear.z = float(v_ibvs[2])
-        vel.angular.z = float(Wb[2])
+        vel.linear.x = float(np.clip(Vb[0].item(), -MAX_LIN_VEL, MAX_LIN_VEL))
+        vel.linear.y = float(np.clip(Vb[1].item(), -MAX_LIN_VEL, MAX_LIN_VEL))
+        vel.linear.z = float(np.clip(Vb[2].item(), -MAX_LIN_VEL, MAX_LIN_VEL))
+        vel.angular.x = float(np.clip(Wb[0].item(), -MAX_ANG_VEL, MAX_ANG_VEL))
+        vel.angular.y = 0.0 
+        vel.angular.z = float(np.clip(Wb[2].item(), -MAX_ANG_VEL, MAX_ANG_VEL))
         self.vel_pub.publish(vel)
 
         # Error logging
         err_msg = Float32MultiArray()
-        err_msg.data = errs
+        err_msg.data = errs.flatten().tolist()
         self.err_pub.publish(err_msg)
 
 
