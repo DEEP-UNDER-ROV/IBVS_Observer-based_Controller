@@ -200,7 +200,7 @@ class IBVS_Telemetry(Node):
                 cv2.putText(stream, f"Center Err: X:{ex:+.2f} Y:{ey:+.2f} Z:{ez:+.2f}",
                             (x0, y0), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
             elif num_elements == 2:
-                ex, ey = e
+                ex, ey = e[i*2:(i+1)*2]
                 cv2.putText(stream, f"Center Err: X:{ex:+.2f} Y:{ey:+.2f}",
                             (x0, y0), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
         
