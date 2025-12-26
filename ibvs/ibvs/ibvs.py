@@ -3,182 +3,170 @@ import rclpy
 from rclpy.node import Node
 import numpy as np
 
+from geometry_msgs.msg import PolygonStamped, Twist, Point
 from std_msgs.msg import Float32MultiArray
-from geometry_msgs.msg import PolygonStamped, Twist
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 
-from ibvs.constants import FX, FY, CX, CY, TAG_SIZE, DESIRED_SIZE, LAMBDA_P, PATCH, Z_DES, P_CB_X, P_CB_Y, P_CB_Z, MAX_LIN_VEL, MAX_ANG_VEL
+from ibvs.constants import *
 
-
-# Camera-to-Body Rotation Matrix (From your base code)
-R_CB = np.array([
-    [0, 0, 1],
-    [1, 0, 0],
-    [0, 1, 0]
-], dtype=float)
-
-p_CB = np.array([P_CB_X, P_CB_Y, P_CB_Z])
 
 class IBVSControllerNode(Node):
     def __init__(self):
-        super().__init__("ibvs_controller")
+        super().__init__("IBVSControllerNode")
         self.bridge = CvBridge()
 
-        # Subscriptions
-        self.sub_corners = self.create_subscription(PolygonStamped, "/apriltag/corners", self.cb_corners, 10)
-        self.sub_depth = self.create_subscription(Image, "/camera/depth/image_raw", self.cb_depth, 10)
+        # Subscribers
+        self.sub_corners = self.create_subscription(
+            PolygonStamped, "/apriltag/corners", self.cb_corners, 10)
+        self.sub_depth = self.create_subscription(
+            Image, "/camera/depth/image_raw", self.cb_depth, 10)
+        self.sub_pnp = self.create_subscription(
+            Point, "/pnp/relative_position", self.cb_pnp, 10)
 
-        # Publisher - Sending velocity setpoints to MAVROS
-        self.vel_pub = self.create_publisher(Twist, "/mavros/setpoint_velocity/cmd_vel_unstamped", 10)
+        # Publishers
+        self.vel_pub = self.create_publisher(Twist, "/ibvs/vel", 10)
+        self.pos_pub = self.create_publisher(Point, "/ibvs/pos", 10)
         self.err_pub = self.create_publisher(Float32MultiArray, "/ibvs/error", 10)
 
         self.depth_img = None
+        self.last_time = self.get_clock().now()
 
-        # Define the desired image features (4 corners)
-        s = DESIRED_SIZE // 2
-        self.desired_pts = np.array([
-            [CX - s, CY - s], # TL
-            [CX + s, CY - s], # TR
-            [CX + s, CY + s], # BR
-            [CX - s, CY + s]  # BL
-        ], dtype=np.float32)
+        # Desired image features
+        self.desired_pts = self.desired_corners(
+            Z_DES, FX, FY, CX, CY, TAG_SIZE)
 
-        self.p_CB = np.array([P_CB_X, P_CB_Y, P_CB_Z])
+        # --- Dynamic extension state ---
+        self.p_hat = np.zeros(3)       # virtual IBVS position
+        self.p_pnp = np.zeros(3)       # anchor (from PnP)
 
-        self.get_logger().info("IBVS Controller Node Started")
+        self.get_logger().info("IBVS Controller (pure x,y + anchored integrator) started")
+
+    # ---------------------------------------------------------
+
+    def desired_corners(self, Z, fx, fy, cx, cy, tag_size):
+        s = tag_size / 2.0
+        corners = np.array([
+            [-s, -s, Z],
+            [ s, -s, Z],
+            [ s,  s, Z],
+            [-s,  s, Z],
+        ])
+
+        pts = np.zeros((4, 2))
+        for i, (X, Y, Z) in enumerate(corners):
+            pts[i, 0] = fx * X / Z + cx
+            pts[i, 1] = fy * Y / Z + cy
+        return pts
+
+    # ---------------------------------------------------------
 
     def cb_depth(self, msg):
-        # RealSense 16UC1 is millimeters, convert to meters
         self.depth_img = self.bridge.imgmsg_to_cv2(msg).astype(np.float32) * 0.001
 
-    def interaction_matrix(self, u, v, Z):
-        x = (u - CX) / FX
-        y = (v - CY) / FY
+    def cb_pnp(self, msg):
+        # Relative pose anchor (tag frame)
+        self.p_pnp[:] = np.array([msg.x, msg.y, msg.z])
+
+    # ---------------------------------------------------------
+
+    def interaction_matrix(self, x, y, Z):
         return np.array([
-            [-1/Z,  0,    x/Z,  x*y,      -(1+x*x),  y],
-            [0,    -1/Z,  y/Z,  1+y*y,    -x*y,     -x],
-            [0,     0,   -1,   -y*Z,       x*Z,      0]
+            [-1/Z, 0.0,  x/Z,  x*y, -(1+x*x),  y],
+            [0.0, -1/Z,  y/Z,  1+y*y, -x*y,   -x]
         ])
+
+    # ---------------------------------------------------------
 
     def cb_corners(self, msg):
         if self.depth_img is None:
             return
 
+        now = self.get_clock().now()
+        dt = (now - self.last_time).nanoseconds * 1e-9
+        self.last_time = now
+        if dt <= 0:
+            return
+
+        rows = []
+        errs = []
+
         pts = np.array([[p.x, p.y] for p in msg.polygon.points])
-        rows, errs = [], []
         h, w = self.depth_img.shape
 
-        # 1. Build Interaction Matrix and Error Vector
-        for i in range(4):
-            u, v = pts[i]
-            ui, vi = int(round(u)), int(round(v))
+        for i, (u, v) in enumerate(pts):
+            ui, vi = int(u), int(v)
+            if not (0 <= ui < w and 0 <= vi < h):
+                return
 
-            if not (0 <= ui < w and 0 <= vi < h): return
-
-            # Depth sampling with safety patch
-            patch = self.depth_img[max(0, vi-PATCH):min(h, vi+PATCH+1),
-                                   max(0, ui-PATCH):min(w, ui+PATCH+1)]
+            patch = self.depth_img[
+                max(0, vi-PATCH):min(h, vi+PATCH+1),
+                max(0, ui-PATCH):min(w, ui+PATCH+1)
+            ]
             valid = patch[patch > 0]
             if valid.size == 0:
-                self.get_logger().warn(f"No valid depth for point {i+1}")
                 return
 
             Z = float(np.median(valid))
+            if Z < 0.2:
+                return
 
-            L = self.interaction_matrix(u, v, Z)
-            rows.append(L)
+            # normalized coordinates
+            x = (u - CX) / FX
+            y = (v - CY) / FY
+            xd = (self.desired_pts[i, 0] - CX) / FX
+            yd = (self.desired_pts[i, 1] - CY) / FY
 
-            # Normalize the current point and the desired point
-            curr_x = (u - CX) / FX
-            curr_y = (v - CY) / FY
-            des_x = (self.desired_pts[i, 0] - CX) / FX
-            des_y = (self.desired_pts[i, 1] - CY) / FY
-            
-            # Error in normalized coordinates
-            errs.extend([curr_x - des_x, curr_y - des_y, Z - Z_DES])
+            rows.append(self.interaction_matrix(x, y, Z))
+            errs.extend([x - xd, y - yd])
 
-        Ls = np.vstack(rows)
-        e = np.array(errs).reshape(-1, 1)
+        # --- IBVS control law ---
+        L = np.vstack(rows)                  # 8x6
+        e = np.array(errs).reshape(-1, 1)    # 8x1
 
-        # --- TERMINAL PRINTING: FEATURE ERRORS ---
-        print("\n" + "="*50)
-        print(f"{'Feature':<10} | {'du (px)':<10} | {'dv (px)':<10} | {'dz (m)':<10}")
-        print("-" * 50)
+        mu = 0.01
+        Vc = -LAMBDA_P * np.linalg.inv(
+            L.T @ L + mu * np.eye(6)) @ L.T @ e
 
-        # errs contains [u1, v1, z1, u2, v2, z2, ...]
-        for i in range(4):
-            ex = errs[i*3]     # u error
-            ey = errs[i*3 + 1] # v error
-            ez = errs[i*3 + 2] # depth error
-            print(f"Point {i+1:<4} | {ex:+10.1f} | {ey:+10.1f} | {ez:+10.3f}")
+        v_c = Vc[0:3]
+        w_c = Vc[3:6]
 
-        print("-" * 50)
+        # Camera → body
+        Wb = R_CB @ w_c
+        Vb = (R_CB @ v_c) + np.cross(Wb.flatten(), P_CB).reshape(3, 1)
 
-        # 2. Compute Camera Velocity (Vc)
-        Vc = -LAMBDA_P * (np.linalg.pinv(Ls) @ e)
+        # --- Dynamic extension (anchored integrator) ---
+        v_ibvs = Vb.flatten()
+        p_err = self.p_hat - self.p_pnp
+        self.p_hat += (v_ibvs - K_ANCHOR * p_err) * dt
+        self.p_hat = np.clip(self.p_hat, -MAX_OFFSET, MAX_OFFSET)
 
-        # Split into linear and angular components
-        v_c = Vc[0:3].reshape(3, 1)
-        w_c = Vc[3:6].reshape(3, 1)
+        # Publish position command
+        self.pos_pub.publish(Point(
+            x=float(self.p_hat[0]),
+            y=float(self.p_hat[1]),
+            z=float(self.p_hat[2])
+        ))
 
-        # 3. Transform to Body Frame (Vb)
-        # Rotate angular velocity: w_b = R_CB * w_c
-        w_b = R_CB @ w_c
+        # (Optional) publish velocity for logging
+        vel = Twist()
+        vel.linear.x = float(v_ibvs[0])
+        vel.linear.y = float(v_ibvs[1])
+        vel.linear.z = float(v_ibvs[2])
+        vel.angular.z = float(Wb[2])
+        self.vel_pub.publish(vel)
 
-        # Rotate linear velocity and compensate for lever arm (p_CB)
-        # v_b = R_CB * v_c + (w_b x p_CB)
-        v_b = (R_CB @ v_c) + np.cross(w_b.flatten(), p_CB).reshape(3, 1)
-
-        # 4. Apply Velocity Capping and Type Casting
-        # We use .item() to extract the raw value and float() to ensure ROS2 compatibility.
-        # BlueROV2 / ArduSub Standard: 
-        # x: Forward, y: Lateral (Strafe), z: Vertical (Throttle)
-        vx = float(np.clip(v_b[0].item(), -MAX_LIN_VEL, MAX_LIN_VEL))
-        vy = float(np.clip(v_b[1].item(), -MAX_LIN_VEL, MAX_LIN_VEL))
-        vz = float(np.clip(v_b[2].item(), -MAX_LIN_VEL, MAX_LIN_VEL))
-
-        # Angular: 
-        # x: Roll, y: Pitch, z: Yaw
-        wx = float(np.clip(w_b[0].item(), -MAX_ANG_VEL, MAX_ANG_VEL))
-        wy = 0.0  # Keep pitch at 0 to maintain ROV stability unless needed
-        wz = float(np.clip(w_b[2].item(), -MAX_ANG_VEL, MAX_ANG_VEL))
-
-        # 5. Build and Publish Twist Message
-        cmd = Twist()
-        
-        # Linear Velocities
-        cmd.linear.x = vx
-        cmd.linear.y = vy
-        cmd.linear.z = vz
-
-        # Angular Velocities
-        cmd.angular.x = wx
-        cmd.angular.y = wy
-        cmd.angular.z = wz
-
-        # Safety Check: Log the command to terminal
-        self.get_logger().info(f"Vx: {vx:.2f}, Vy: {vy:.2f}, Vz: {vz:.2f}, Wx: {wx:.2f}, Wy: {wy:.2f}, Wz: {wz:.2f}")
-        self.vel_pub.publish(cmd)
-
-        errs_np = np.array(errs, dtype=np.float32).reshape(4, 3)
+        # Error logging
         err_msg = Float32MultiArray()
-        
-        # Flatten in the order:
-        # [eu1, ev1, ez1, eu2, ev2, ez2, eu3, ev3, ez3, eu4, ev4, ez4]
-        err_msg.data = errs_np.flatten().tolist()
+        err_msg.data = errs
         self.err_pub.publish(err_msg)
+
 
 def main():
     rclpy.init()
-    node = IBVSControllerNode()
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        node.destroy_node()
-        rclpy.shutdown()
+    rclpy.spin(IBVSControllerNode())
+    rclpy.shutdown()
+
 
 if __name__ == "__main__":
     main()
