@@ -25,7 +25,7 @@ class IBVSControllerNode(Node):
             Image, "/camera/depth/image_raw", self.cb_depth, 10
         )
         self.sub_pnp = self.create_subscription(
-            Odometry, "/pnp/relative_odometry", self.cb_pnp, 10
+            Odometry, "/pnp/relative_position", self.cb_pnp, 10
         )
 
         # ---------------- Publishers -----------------
