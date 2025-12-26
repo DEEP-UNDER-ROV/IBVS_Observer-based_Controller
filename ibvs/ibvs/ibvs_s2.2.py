@@ -16,14 +16,9 @@ class IBVSControllerNode(Node):
         self.bridge = CvBridge()
 
         # Subscriber
-        self.sub_corners = self.create_subscription(
-            PolygonStamped, "/apriltag/corners", self.cb_corners, 10)
-        self.sub_depth = self.create_subscription(
-            Image, "/camera/depth/image_raw", self.cb_depth, 10)
-
-        # >>> ADDED: PnP relative position <<<
-        self.sub_pnp = self.create_subscription(
-            Point, "/pnp/relative_position", self.cb_pnp, 10)
+        self.sub_corners = self.create_subscription(PolygonStamped, "/apriltag/corners", self.cb_corners, 10)
+        self.sub_depth = self.create_subscription(Image, "/camera/depth/image_raw", self.cb_depth, 10)
+        self.sub_pnp = self.create_subscription(Point, "/pnp/relative_position", self.cb_pnp, 10)
 
         # Publisher
         self.vel_pub = self.create_publisher(Twist, "/ibvs/vel", 10)
@@ -31,8 +26,8 @@ class IBVSControllerNode(Node):
         self.err_pub = self.create_publisher(Float32MultiArray, "/ibvs/error", 10)
 
         self.depth_img = None
+        
         self.last_time = self.get_clock().now()
-
         # Desired image features
         self.desired_pts = self.desired_corners(
             Z_DES, FX, FY, CX, CY, TAG_SIZE)
@@ -40,6 +35,7 @@ class IBVSControllerNode(Node):
         # >>> ADDED: PnP + IBVS position correction <<<
         self.p_pnp = np.zeros(3)     # tag-relative position
         self.p_corr = np.zeros(3)    # IBVS correction integral
+        self.p_cmd = np.zeros(3)
 
         # >>> ADDED: Tag-loss watchdog <<<
         self.last_tag_time = None
