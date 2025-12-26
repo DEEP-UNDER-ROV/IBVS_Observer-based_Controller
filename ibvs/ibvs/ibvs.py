@@ -76,7 +76,9 @@ class IBVSControllerNode(Node):
 
     # ---------------------------------------------------------
 
-    def interaction_matrix(self, x, y, Z):
+    def interaction_matrix(self, u, v, Z):
+        x = (u - CX) / FX
+        y = (v - CY) / FY
         return np.array([
             [-1/Z, 0.0,  x/Z,  x*y, -(1+x*x),  y],
             [0.0, -1/Z,  y/Z,  1+y*y, -x*y,   -x]
@@ -124,18 +126,17 @@ class IBVSControllerNode(Node):
                 return
 
             # normalized coordinates
-            x = (u - CX) / FX
-            y = (v - CY) / FY
-            xd = (self.desired_pts[i, 0] - CX) / FX
-            yd = (self.desired_pts[i, 1] - CY) / FY 
-            rows.append(self.interaction_matrix(x, y, Z))
+            rows.append(self.interaction_matrix(u, v, Z))
+            
+            x, y = (u - CX)/ FX, (v - CY)/ FY
+            xd, yd = (self.desired_pts[i]-[CX,CY])/[FX,FY]
             errs.extend([x - xd, y - yd])
 
         # --- IBVS control law ---
         L = np.vstack(rows)                  # 8x6
         e = np.array(errs).reshape(-1, 1)    # 8x1
 
-        mu = 0.01
+        mu = 1
         Vc = -LAMBDA_P * np.linalg.inv(
             L.T @ L + mu * np.eye(6)) @ L.T @ e
 
