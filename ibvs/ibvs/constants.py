@@ -21,6 +21,7 @@ LAMBDA_P = 0.02
 Z_DES = 1.5
 TAG_SIZE = 0.207
 PATCH = 2
+K_ACNHOR = 0.01
 
 # --- Velocity Limits ---
 MAX_LIN_VEL = 0.2
