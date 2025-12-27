@@ -21,16 +21,15 @@ class IBVSControllerNode(Node):
         self.sub_pnp = self.create_subscription(Point, "/pnp/relative_position", self.cb_pnp, 10)
 
         # Publisher
+        self.odom_pub = self.create_publisher(Odometry, "/mavros/odometry/in", 10)
         self.vel_pub = self.create_publisher(Twist, "/ibvs/vel", 10)
         self.pos_pub = self.create_publisher(Point, "/ibvs/pos", 10)
         self.err_pub = self.create_publisher(Float32MultiArray, "/ibvs/error", 10)
 
         self.depth_img = None
-        
         self.last_time = self.get_clock().now()
         # Desired image features
-        self.desired_pts = self.desired_corners(
-            Z_DES, FX, FY, CX, CY, TAG_SIZE)
+        self.desired_pts = self.desired_corners(Z_DES, FX, FY, CX, CY, TAG_SIZE)
 
         # >>> ADDED: PnP + IBVS position correction <<<
         self.p_pnp = np.zeros(3)     # tag-relative position
@@ -39,12 +38,13 @@ class IBVSControllerNode(Node):
 
         # >>> ADDED: Tag-loss watchdog <<<
         self.last_tag_time = None
+        self.tag_lost = True
         self.TAG_TIMEOUT = 0.5  # seconds
 
         self.get_logger().info("CAUTION !! IBVS Control ON")
 
         # Timer for tag-loss handling
-        self.create_timer(0.05, self.timer_check_tag)
+        self.create_timer(0.1, self.timer_check_tag)
 
     # ---------------------------------------------------------
 
@@ -70,7 +70,9 @@ class IBVSControllerNode(Node):
 
     # >>> ADDED <<<
     def cb_pnp(self, msg):
-        self.p_pnp[:] = np.array([msg.x, msg.y, msg.z])
+        self.p_pnp[0] = msg.pose.pose.position.x
+        self.p_pnp[1] = msg.pose.pose.position.y
+        self.p_pnp[2] = msg.pose.pose.position.z
 
     # ---------------------------------------------------------
 
@@ -86,9 +88,6 @@ class IBVSControllerNode(Node):
     # ---------------------------------------------------------
 
     def cb_corners(self, msg):
-        # >>> UPDATE TAG TIME <<<
-        self.last_tag_time = self.get_clock().now()
-
         if self.depth_img is None:
             return
 
@@ -97,6 +96,9 @@ class IBVSControllerNode(Node):
         self.last_time = now
         if dt <= 0:
             return
+
+        self.last_tag_time = rclpy.time.Time.from_msg(msg.header.stamp)
+        self.tag_lost = False
 
         rows, errs = [], []
         pts = np.array([[p.x, p.y] for p in msg.polygon.points])
@@ -128,7 +130,8 @@ class IBVSControllerNode(Node):
         L = np.vstack(rows)
         e = np.array(errs).reshape(-1, 1)
 
-        Vc = -LAMBDA_P * np.linalg.pinv(L) @ e
+        mu = 1.0
+        Vc = -LAMBDA_P * np.linalg.inv(L.T @ L + mu * np.eye(6)) @ L.T @ e
 
         v_c = Vc[0:3].reshape(3, 1)
         w_c = Vc[3:6].reshape(3, 1)
@@ -152,11 +155,18 @@ class IBVSControllerNode(Node):
         # >>> FINAL POSITION COMMAND <<<
         p_cmd = self.p_pnp + self.p_corr
 
-        self.pos_pub.publish(Point(
-            x=float(p_cmd[0]),
-            y=float(p_cmd[1]),
-            z=float(p_cmd[2])
-        ))
+        odom = Odometry()
+        odom.header.stamp = now.to_msg()
+        odom.header.frame_id = "map"
+        odom.child_frame_id = "base_link"
+
+        odom.pose.pose.position.x = float(self.p_cmd[0])
+        odom.pose.pose.position.y = float(self.p_cmd[1])
+        odom.pose.pose.position.z = float(self.p_cmd[2])
+
+        odom.pose.pose.orientation.w = 1.0
+
+        self.odom_pub.publish(odom)
 
         err_msg = Float32MultiArray()
         err_msg.data = np.array(errs, dtype=np.float32).tolist()
@@ -171,8 +181,9 @@ class IBVSControllerNode(Node):
         now = self.get_clock().now()
         dt_lost = (now - self.last_tag_time).nanoseconds * 1e-9
 
-        if dt_lost > self.TAG_TIMEOUT:
-            # ZERO CONTROL
+        if dt_lost > self.TAG_TIMEOUT and not self.tag_lost:
+            self.tag_lost = True
+            self.get_logger().warn("AprilTag LOST → freezing external position")
             self.vel_pub.publish(Twist())
             self.p_corr[:] = 0.0
 
