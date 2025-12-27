@@ -25,8 +25,11 @@ setup(
     entry_points={
         'console_scripts': [
             'detector = ibvs.detector:main',
-            'pnp = ibvs.pnp:main',
-            'ibvs = ibvs.ibvs:main',
+            'pnp1 = ibvs.pnp1:main',
+            'pnp2 = ibvs.pnp2:main',
+            'ibvs1 = ibvs.ibvs1:main',
+            'ibvs2 = ibvs.ibvs2:main',
+            'ibvs3 = ibvs.ibvs3:main',
         ],
     },
 )
