@@ -33,21 +33,21 @@ class IBVSControllerNode(Node):
         self.desired_pts = self.desired_corners(Z_DES, FX, FY, CX, CY, TAG_SIZE)
 
         self.M = build_M_matrix(
-            mass=15.0,
+            mass=16.0,
             add_frac_x=0.2,
-            add_frac_y=0.3,
-            add_frac_z=0.4,
+            add_frac_y=0.2,
+            add_frac_z=0.2,
             L=0.46,
             W=0.40,
             H=0.25,
         )
         self.D = build_D_matrix(0.2)
 
-        self.Fz_bias = -0.3  # sinking compensation (tunable)
+        self.Fz_bias = -0.1  # sinking compensation (tunable)
 
-    def force_to_pwm(self, u, u_max, pwm_center=1500, pwm_range=400):
-        u = np.clip(u, -u_max, u_max)
-        return int(pwm_center + (u / u_max) * pwm_range)
+    def force_to_pwm(self, force, force_max=5, pwm_center=1500, pwm_range=400):
+        force = np.clip(force, -force_max, force_max)
+        return int(pwm_center + (force / force_max) * pwm_range)
 
     def desired_corners(self, Z_DES , fx, fy, cx, cy, tag_size):
         half = tag_size / 2.0
