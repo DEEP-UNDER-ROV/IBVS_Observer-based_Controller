@@ -223,9 +223,9 @@ class IBVSControllerNode(Node):
             self.p_corr[:] = 0.0
 
             self.pos_pub.publish(Point(
-                x=float(self.p_pnp[0]),
-                y=float(self.p_pnp[1]),
-                z=float(self.p_pnp[2])
+                x=float(self.self.target_pub.publish[0]),
+                y=float(self.self.target_pub.publish[1]),
+                z=float(self.self.target_pub.publish[2])
             ))
 
 def main():
