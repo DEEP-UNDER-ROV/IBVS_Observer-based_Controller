@@ -6,6 +6,7 @@ from rclpy.node import Node
 import numpy as np
 
 from geometry_msgs.msg import PolygonStamped, Twist, Point, PoseStamped
+from nav_msgs.msg import Odometry
 from std_msgs.msg import Float32MultiArray
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
@@ -77,9 +78,9 @@ class IBVSControllerNode(Node):
 
     # >>> ADDED <<<
     def cb_pnp(self, msg):
-        self.p_pnp[0] = msg.pose.pose.position.x
-        self.p_pnp[1] = msg.pose.pose.position.y
-        self.p_pnp[2] = msg.pose.pose.position.z
+        self.p_pnp[0] = msg.x
+        self.p_pnp[1] = msg.y
+        self.p_pnp[2] = msg.z
 
     def cb_pnp_pose(self, msg):
     q = msg.pose.orientation
