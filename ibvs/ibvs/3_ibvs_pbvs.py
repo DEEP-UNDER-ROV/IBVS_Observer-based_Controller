@@ -25,15 +25,15 @@ class IBVSControllerNode(Node):
         self.latest_tvec = None
 
         # --- Subscriber ---
-        self.sub = self.create_subscription(PoseStamped,"/mavros/vision_pose/pose",self.cb_pose,10)
-        self.sub_tvec = self.create_subscription(Vector3Stamped, "/pnp/tvec", self.cb_tvec, 10)
+        self.sub = self.create_subscription(PoseStamped,"/mavros/vision_pose/pose",self.cb_pose, 10)
+        self.sub_tvec = self.create_subscription(Point, "/pnp/relative_position", self.cb_tvec, 10)
 
         # --- Publisher ---
-        self.pub = self.create_publisher(PositionTarget,"/mavros/setpoint_raw/local",10)
+        self.pub = self.create_publisher(PoseStamped,"/mavros/setpoint_position/local", 10)
         self.pos_pub = self.create_publisher(Point, "/ibvs/pos", 10)
         self.err_pub = self.create_publisher(Float32MultiArray, "/ibvs/error", 10)
         
-        self.timer = self.create_timer(0.05, self.loop)
+        self.timer = self.create_timer(0.1, self.loop)
         self.get_logger().info("IBVS Scenario 3 (Position-based) started")
 
     def cb_pose(self, msg):
@@ -56,10 +56,10 @@ class IBVSControllerNode(Node):
         R_BL = R.from_quat([q.x, q.y, q.z, q.w]).as_matrix()
 
         # tvec: tag position wrt camera (OpenCV frame)
-        e_cam = self.latest_tvec - self.tvec_des   # [Xc, Yc, Zc]
+        e_cam = self.tvec_des - self.latest_tvec   # [Xc, Yc, Zc]
 
         # Camera → Body (NED body)
-        e_body = R_CB @ e_cam + P_CB
+        e_body = R_CB @ e_cam
 
         # Body → Local ENU
         e_local = R_BL @ e_body
@@ -68,7 +68,7 @@ class IBVSControllerNode(Node):
         p_enu = np.array([p_rov.x, p_rov.y, p_rov.z])
 
         # --- Desired absolute position ---
-        p_des_enu = p_enu - self.kp @ e_local
+        p_des_enu = p_enu + self.kp @ e_local
 
         # --- Publish setpoint ---
         cmd = PositionTarget()
@@ -82,12 +82,13 @@ class IBVSControllerNode(Node):
             PositionTarget.IGNORE_AFX |
             PositionTarget.IGNORE_AFY |
             PositionTarget.IGNORE_AFZ |
+            PositionTarget.IGNORE_YAW |
             PositionTarget.IGNORE_YAW_RATE
         )
 
         # ENU → NED
-        cmd.position.x =  p_des_enu[0]   # North
-        cmd.position.y = -p_des_enu[1]   # East
+        cmd.position.x =  p_des_enu[1]   # North
+        cmd.position.y =  p_des_enu[0]   # East
         cmd.position.z = -p_des_enu[2]   # Down
 
         cmd.yaw = 0.0
