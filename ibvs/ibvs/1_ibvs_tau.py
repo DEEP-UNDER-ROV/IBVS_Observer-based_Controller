@@ -43,11 +43,21 @@ class IBVSControllerNode(Node):
         )
         self.D = build_D_matrix(0.2)
 
-        self.Fz_bias = -0.1  # sinking compensation (tunable)
+        self.Fz_bias = 0.1  # sinking compensation (tunable)
+        self.last_time = self.get_clock().now()
+        self.last_tag_time = None
+        self.tag_lost = True
+        self.TAG_TIMEOUT = 0.5
 
-    def force_to_pwm(self, force, force_max=5, pwm_center=1500, pwm_range=400):
+        self.create_timer(0.1, self.timer_check_tag)
+
+    def force_to_pwm(self, force, force_max, pwm_center=1500, pwm_range=400):
+        if force_max <= 0: return pwm_center
         force = np.clip(force, -force_max, force_max)
         return int(pwm_center + (force / force_max) * pwm_range)
+
+    def force_zero(self, force):
+        return force = 0
 
     def desired_corners(self, Z_DES , fx, fy, cx, cy, tag_size):
         half = tag_size / 2.0
@@ -82,6 +92,15 @@ class IBVSControllerNode(Node):
     def cb_corners(self, msg):
         if self.depth_img is None:
             return
+
+        now = self.get_clock().now()
+        dt = (now - self.last_time).nanoseconds * 1e-9
+        self.last_time = now
+        if dt <= 0:
+            return
+
+        self.last_tag_time = rclpy.time.Time.from_msg(msg.header.stamp)
+        self.tag_lost = False
 
         rows,errs=[],[]
         pts = np.array([[p.x,p.y] for p in msg.polygon.points])
@@ -125,7 +144,7 @@ class IBVSControllerNode(Node):
         nu[3:6] = Wb.flatten()
 
         # Linearized acceleration estimate
-        nu_dot = nu / 1.0
+        nu_dot = nu / 0.1
 
         # Gravity / buoyancy
         g = np.array([0,0,self.Fz_bias,0,0,0])
@@ -148,6 +167,23 @@ class IBVSControllerNode(Node):
         err_msg = Float32MultiArray()
         err_msg.data = np.array(errs, dtype=np.float32).tolist()
         self.err_pub.publish(err_msg)
+
+    def timer_check_tag(self):
+        if self.last_tag_time is None:
+            return
+
+        now = self.get_clock().now()
+        dt_lost = (now - self.last_tag_time).nanoseconds * 1e-9
+
+        if dt_lost > self.TAG_TIMEOUT and not self.tag_lost:
+            self.tag_lost = True
+            self.get_logger().warn("AprilTag LOST → freezing external position")
+            # self.publish_rc(np.zeros(18))
+            rc.channels[2] = self.force_zero(Tau[2],  MAX_TAU_Z)    # Heave
+            rc.channels[3] = self.force_zero(Tau[5],  MAX_TAU_YAW)  # Yaw
+            rc.channels[4] = self.force_zero(Tau[0],  MAX_TAU_X)    # Surge
+            rc.channels[5] = self.force_zero(Tau[1],  MAX_TAU_Y)    # Sway
+
 
 def main():
     rclpy.init()
