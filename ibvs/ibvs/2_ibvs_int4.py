@@ -4,9 +4,9 @@
 import rclpy
 from rclpy.node import Node
 import numpy as np
+import math
 
 from geometry_msgs.msg import PolygonStamped, Twist, Point, PoseStamped
-from nav_msgs.msg import Odometry
 from std_msgs.msg import Float32MultiArray
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
@@ -22,17 +22,17 @@ class IBVSControllerNode(Node):
         self.sub_corners = self.create_subscription(PolygonStamped, "/apriltag/corners", self.cb_corners, 10)
         self.sub_depth = self.create_subscription(Image, "/camera/depth/image_raw", self.cb_depth, 10)
         self.sub_pnp = self.create_subscription(Point, "/pnp/relative_position", self.cb_pnp, 10)
-        self.sub_pnp_pose = self.create_subscription(PoseStamped, "/mavros/vision_pose/pose", self.cb_pnp_pose, 10)
-
-      
+#        self.sub_pnp_pose = self.create_subscription(PoseStamped, "/mavros/vision_pose/pose", self.cb_pnp_pose, 10)
+        self.sub_ekf = self.create_subscription(PoseStamped, "/mavros/local_position/pose", self.cb_ekf, 10)
 
         # Publisher
-        self.odom_pub = self.create_publisher(Odometry, "/mavros/odometry/in", 10)
+        self.target_pub = self.create_publisher(PoseStamped, "/mavros/setpoint_position/local", 10)
         self.vel_pub = self.create_publisher(Twist, "/ibvs/vel", 10)
         self.pos_pub = self.create_publisher(Point, "/ibvs/pos", 10)
         self.err_pub = self.create_publisher(Float32MultiArray, "/ibvs/error", 10)
 
         self.depth_img = None
+        self.current_pose = None
         self.last_time = self.get_clock().now()
         # Desired image features
         self.desired_pts = self.desired_corners(Z_DES, FX, FY, CX, CY, TAG_SIZE)
@@ -42,7 +42,6 @@ class IBVSControllerNode(Node):
         self.p_corr = np.zeros(3)    # IBVS correction integral
         self.p_cmd = np.zeros(3)
         self.yaw = 0.0   # fused yaw (rad)
-
 
         # >>> ADDED: Tag-loss watchdog <<<
         self.last_tag_time = None
@@ -54,8 +53,7 @@ class IBVSControllerNode(Node):
         # Timer for tag-loss handling
         self.create_timer(0.1, self.timer_check_tag)
 
-    # ---------------------------------------------------------
-
+    
     def desired_corners(self, Z_DES, fx, fy, cx, cy, tag_size):
         half = tag_size / 2.0
         corners = np.array([
@@ -71,26 +69,32 @@ class IBVSControllerNode(Node):
             pts[i, 1] = fy * Y / Z + cy
         return pts
 
-    # ---------------------------------------------------------
-
+    def quaternion_from_yaw(yaw):
+        half = 0.5 * yaw
+        return (
+            0.0,                  # qx
+            0.0,                  # qy
+            math.sin(half),       # qz
+            math.cos(half)        # qw
+        )
+        
     def cb_depth(self, msg):
         self.depth_img = self.bridge.imgmsg_to_cv2(msg).astype(np.float32) * 0.001
 
-    # >>> ADDED <<<
+
     def cb_pnp(self, msg):
         self.p_pnp[0] = msg.x
         self.p_pnp[1] = msg.y
         self.p_pnp[2] = msg.z
 
-    def cb_pnp_pose(self, msg):
-    q = msg.pose.orientation
+    # def cb_pnp_pose(self, msg):
+    #     q = msg.pose.orientation
 
-    # yaw from quaternion (Z-only assumption)
-    self.yaw = math.atan2(
-        2.0 * (q.w * q.z),
-        1.0 - 2.0 * (q.z * q.z))
-
-    # ---------------------------------------------------------
+    
+    def cb_ekf(self, msg):
+        self.current_pose = msg
+        q = msg.pose.orientation
+        self.yaw = math.atan2(2.0 * (q.w * q.z), 1.0 - 2.0 * (q.z * q.z))
 
     def interaction_matrix(self, u, v, Z):
         x = (u - CX) / FX
@@ -101,16 +105,6 @@ class IBVSControllerNode(Node):
             [0,     0,   -1,   -y*Z,       x*Z,      0]
         ])
 
-    def quaternion_from_yaw(yaw):
-    half = 0.5 * yaw
-    return (
-        0.0,
-        0.0,
-        math.sin(half),
-        math.cos(half)
-    )
-
-    # ---------------------------------------------------------
 
     def cb_corners(self, msg):
         if self.depth_img is None:
@@ -164,6 +158,17 @@ class IBVSControllerNode(Node):
         Wb = R_CB @ w_c
         Vb = (R_CB @ v_c) + np.cross(Wb.flatten(), P_CB).reshape(3, 1)
 
+        pos = self.current_pose.pose.position
+        setpoint = PoseStamped()
+        setpoint.header.stamp = now.to_msg()
+        setpoint.header.frame_id = "map"
+        setpoint.pose.position.x = float(pos.x + v[0]*dt)
+        setpoint.pose.position.y = float(pos.y + v[1]*dt)
+        setpoint.pose.position.z = float(pos.z + v[2]*dt)
+        setpoint.pose.orientation = self.current_pose.pose.orientation
+
+        self.target_pub.publish(setpoint)
+
         # ---------------- Velocity output ----------------
         vel = Twist()
         vel.linear.x = float(np.clip(Vb[0], -MAX_LIN_VEL, MAX_LIN_VEL))
@@ -174,29 +179,29 @@ class IBVSControllerNode(Node):
 
         # ---------------- POSITION CONTROL (REMODELED) ----------------
         # IBVS correction only
-        self.p_corr += Vb.flatten() * dt
-        self.p_corr = np.clip(self.p_corr, -MAX_OFFSET, MAX_OFFSET)
+        # self.p_corr += Vb.flatten() * dt
+        # self.p_corr = np.clip(self.p_corr, -MAX_OFFSET, MAX_OFFSET)
 
-        # >>> FINAL POSITION COMMAND <<<
-        p_cmd = self.p_pnp + self.p_corr
+        # # >>> FINAL POSITION COMMAND <<<
+        # self.p_cmd = self.p_pnp + self.p_corr
 
-        qx, qy, qz, qw = quaternion_from_yaw(self.yaw)
+        # qx, qy, qz, qw = quaternion_from_yaw(self.yaw)
 
-        odom = Odometry()
-        odom.header.stamp = now.to_msg()
-        odom.header.frame_id = "map"
-        odom.child_frame_id = "base_link"
+        # odom = Odometry()
+        # odom.header.stamp = now.to_msg()
+        # odom.header.frame_id = "map"
+        # odom.child_frame_id = "base_link"
         
-        odom.pose.pose.position.x = float(self.p_cmd[0])
-        odom.pose.pose.position.y = float(self.p_cmd[1])
-        odom.pose.pose.position.z = float(self.p_cmd[2])
+        # odom.pose.pose.position.x = float(self.p_cmd[0])
+        # odom.pose.pose.position.y = float(self.p_cmd[1])
+        # odom.pose.pose.position.z = float(self.p_cmd[2])
         
-        odom.pose.pose.orientation.x = qx
-        odom.pose.pose.orientation.y = qy
-        odom.pose.pose.orientation.z = qz
-        odom.pose.pose.orientation.w = qw
+        # odom.pose.pose.orientation.x = qx
+        # odom.pose.pose.orientation.y = qy
+        # odom.pose.pose.orientation.z = qz
+        # odom.pose.pose.orientation.w = qw
         
-        self.odom_pub.publish(odom)
+        # self.odom_pub.publish(odom)
 
         err_msg = Float32MultiArray()
         err_msg.data = np.array(errs, dtype=np.float32).tolist()
