@@ -17,15 +17,15 @@ P_CB_Y = 0.0
 P_CB_Z = 0.02
 
 # --- IBVS Control Parameters ---
-LAMBDA_P = 0.02
-Z_DES = 1.5
+LAMBDA_P = 0.0001
+K_ACNHOR = 0.3
+Z_DES = 1.0
 TAG_SIZE = 0.207
 PATCH = 2
-K_ACNHOR = 0.01
 
 # --- Velocity Limits ---
-MAX_LIN_VEL = 0.2
-MAX_ANG_VEL = 0.2
+MAX_LIN_VEL = 0.3
+MAX_ANG_VEL = 0.4
 
 # --- QGC Port Configuration ---
 QGC_IP = "192.168.4.1"
