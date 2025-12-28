@@ -68,15 +68,10 @@ class IBVSControllerNode(Node):
             pts[i, 0] = fx * X / Z + cx
             pts[i, 1] = fy * Y / Z + cy
         return pts
-
+    @staticmethod
     def quaternion_from_yaw(yaw):
         half = 0.5 * yaw
-        return (
-            0.0,                  # qx
-            0.0,                  # qy
-            math.sin(half),       # qz
-            math.cos(half)        # qw
-        )
+        return (0.0, 0.0, math.sin(half), math.cos(half))
         
     def cb_depth(self, msg):
         self.depth_img = self.bridge.imgmsg_to_cv2(msg).astype(np.float32) * 0.001
@@ -149,7 +144,7 @@ class IBVSControllerNode(Node):
         L = np.vstack(rows)
         e = np.array(errs).reshape(-1, 1)
 
-        mu = 1.0
+        mu = 0.01
         Vc = -LAMBDA_P * np.linalg.inv(L.T @ L + mu * np.eye(6)) @ L.T @ e
 
         v_c = Vc[0:3].reshape(3, 1)
@@ -158,24 +153,24 @@ class IBVSControllerNode(Node):
         Wb = R_CB @ w_c
         Vb = (R_CB @ v_c) + np.cross(Wb.flatten(), P_CB).reshape(3, 1)
 
-        pos = self.current_pose.pose.position
-        setpoint = PoseStamped()
-        setpoint.header.stamp = now.to_msg()
-        setpoint.header.frame_id = "map"
-        setpoint.pose.position.x = float(pos.x + v[0]*dt)
-        setpoint.pose.position.y = float(pos.y + v[1]*dt)
-        setpoint.pose.position.z = float(pos.z + v[2]*dt)
-        setpoint.pose.orientation = self.current_pose.pose.orientation
-
-        self.target_pub.publish(setpoint)
-
-        # ---------------- Velocity output ----------------
         vel = Twist()
         vel.linear.x = float(np.clip(Vb[0], -MAX_LIN_VEL, MAX_LIN_VEL))
         vel.linear.y = float(np.clip(Vb[1], -MAX_LIN_VEL, MAX_LIN_VEL))
         vel.linear.z = float(np.clip(Vb[2], -MAX_LIN_VEL, MAX_LIN_VEL))
         vel.angular.z = float(np.clip(Wb[2], -MAX_ANG_VEL, MAX_ANG_VEL))
         self.vel_pub.publish(vel)
+
+                             
+        pos = self.current_pose.pose.position
+        setpoint = PoseStamped()
+        setpoint.header.stamp = now.to_msg()
+        setpoint.header.frame_id = "map"
+        setpoint.pose.position.x = pos.x + vel.linear.x * dt
+        setpoint.pose.position.y = pos.y + vel.linear.y * dt
+        setpoint.pose.position.z = pos.z + vel.linear.z * dt
+        setpoint.pose.orientation = self.current_pose.pose.orientation
+
+        self.target_pub.publish(setpoint)
 
         # ---------------- POSITION CONTROL (REMODELED) ----------------
         # IBVS correction only
@@ -220,12 +215,13 @@ class IBVSControllerNode(Node):
             self.tag_lost = True
             self.get_logger().warn("AprilTag LOST → freezing external position")
             self.vel_pub.publish(Twist())
-            self.p_corr[:] = 0.0
 
-            self.pos_pub.publish(Point(
-                x=float(self.self.target_pub.publish[0]),
-                y=float(self.self.target_pub.publish[1]),
-                z=float(self.self.target_pub.publish[2])
+            if self.current_pose:
+                stop_point = Point()
+                stop_point.x = self.current_pose.pose.position.x
+                stop_point.y = self.current_pose.pose.position.y
+                stop_point.z = self.current_pose.pose.position.z
+                self.pos_pub.publish(stop_point)
             ))
 
 def main():
