@@ -17,7 +17,7 @@ P_CB_Y = 0.0
 P_CB_Z = 0.02
 
 # --- IBVS Control Parameters ---
-LAMBDA_P = 0.0001
+LAMBDA_P = 0.001
 K_ACNHOR = 0.3
 Z_DES = 1.0
 TAG_SIZE = 0.207
@@ -32,12 +32,13 @@ QGC_IP = "192.168.4.1"
 QGC_PORT = 5600
 
 # --- Transformation Matrix ---
+# R_CB = np.array([[0,0,1], [-1,0,0], [0,-1,0]], dtype=float)
 R_CB = np.array([[0,0,1],[1,0,0],[0,1,0]], dtype=float)
 P_CB = np.array([P_CB_X, P_CB_Y, P_CB_Z])
 
 MAX_OFFSET = 0.1
 
-MAX_TAU_Z = 0.3
-MAX_TAU_YAW = 0.3
+MAX_TAU_Z = 0.1
+MAX_TAU_YAW = 0.1
 MAX_TAU_X = 0.3
 MAX_TAU_Y = 0.3
