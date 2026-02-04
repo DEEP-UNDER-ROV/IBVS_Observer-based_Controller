@@ -78,20 +78,9 @@ class PNP_Node(Node):
     
         R_ct, _ = cv2.Rodrigues(rvec)
     
-        # ---------- CRITICAL: PLANAR DISAMBIGUATION ----------
-        # Tag Z-axis (normal) must point toward camera
-        # Tag normal in camera frame = third column of R_ct
-        if R_ct[2, 2] <= 0.0:
-            return
-    
-        # ---------- CAMERA POSE IN WORLD (TAG) FRAME ----------
-        # world == tag
         R_wc = R_ct.T
         t_wc = -R_ct.T @ t_ct.reshape(3, 1)
     
-        # ---------- COORDINATE REMAP (camera optical → body proxy) ----------
-        # Optical: x right, y down, z forward
-        # Body-like: x forward, y right, z down
         x = float(t_wc[2])
         y = float(-t_wc[0])
         z = float(-t_wc[1])
