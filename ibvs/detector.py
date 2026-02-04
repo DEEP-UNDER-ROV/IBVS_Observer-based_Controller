@@ -88,6 +88,8 @@ class IBVS_Telemetry(Node):
         self.img_pub_period = 1.0 / 20.0 # image @ 20 Hz
         self.last_img_pub = 0.0
 
+        PATCH = 3
+
         # ---------------- Video Stream ----------------
         gst_pipeline = (
             f"appsrc ! videoconvert ! "
@@ -114,6 +116,24 @@ class IBVS_Telemetry(Node):
     @staticmethod
     def order_corners_apriltag(c):
         return np.array([c[3], c[2], c[1], c[0]], dtype=np.float32)
+
+    def sample_depth(self, depth, u, v):
+        h, w = depth.shape
+        ui, vi = int(u), int(v)
+
+        if not (0 <= ui < w and 0 <= vi < h):
+            return None
+
+        patch = depth[
+            max(0, vi-PATCH):min(h, vi+PATCH+1),
+            max(0, ui-PATCH):min(w, ui+PATCH+1)
+        ]
+
+        valid = patch[patch > 0]
+        if valid.size == 0:
+            return None
+
+        return float(np.median(valid)) * 0.001  # mm → m
 
     # ---------------- Main loop ----------------
     def loop(self):
@@ -159,8 +179,12 @@ class IBVS_Telemetry(Node):
                 poly.header.frame_id = "camera_color_optical_frame"
                 
                 for (u, v) in undistorted_pts:
+                    Z = self.sample_depth(depth, u, v)
+                    if Z is None:
+                        return
+                        
                     p = Point32()
-                    p.x, p.y, p.z = float(u), float(v), 0.0
+                    p.x, p.y, p.z = float(u), float(v), Z
                     poly.polygon.points.append(p)
                 self.corners_pub.publish(poly)
 
