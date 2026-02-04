@@ -12,29 +12,12 @@ from ibvs.constants import *
 
 
 class IBVSControllerNode(Node):
-    """
-    Pure IBVS controller:
-    - Input: corners (u, v, Z) from detector
-    - Output: body velocity command
-    """
-
     def __init__(self):
-        super().__init__("ibvs_controller")
+        super().__init__("IBVS_Controller")
 
         # ---------------- Subscribers ----------------
-        self.sub_corners = self.create_subscription(
-            PolygonStamped,
-            "/apriltag/corners_depth",
-            self.cb_corners,
-            10
-        )
-
-        self.sub_pose = self.create_subscription(
-            PoseStamped,
-            "/mavros/local_position/pose",
-            self.cb_pose,
-            10
-        )
+        self.sub_corners = self.create_subscription(PolygonStamped,"/apriltag/corners", self.cb_corners, 10)
+        self.sub_pose = self.create_subscription(PoseStamped,"/mavros/local_position/pose", self.cb_pose, 10)
 
         # ---------------- Publishers ----------------
         self.vel_pub = self.create_publisher(Twist, "/ibvs/vel", 10)
