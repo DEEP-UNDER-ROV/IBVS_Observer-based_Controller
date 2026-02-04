@@ -177,12 +177,6 @@ class IBVSControllerNode(Node):
         rc.channels[2] = self.vel_to_pwm(Vb[2], self.K_HEAVE) + self.HEAVE_BIAS
         rc.channels[3] = self.vel_to_pwm(Wb[2], self.K_YAW)        # Yaw
 
-        self.rc_pub.publish(rc)
-
-        err_msg = Float32MultiArray()
-        err_msg.data = np.array(errs, dtype=np.float32).tolist()
-        self.err_pub.publish(err_msg)
-
         self.get_logger().info(
             "IBVS CMD | "
             f"Vb [m/s]: x={Vb[0,0]:+.3f}, y={Vb[1,0]:+.3f}, z={Vb[2,0]:+.3f} | "
@@ -191,6 +185,12 @@ class IBVSControllerNode(Node):
             f"heave={rc.channels[2]}, yaw={rc.channels[3]}",
             throttle_duration_sec=0.5
         )
+
+        self.rc_pub.publish(rc)
+
+        err_msg = Float32MultiArray()
+        err_msg.data = np.array(errs, dtype=np.float32).tolist()
+        self.err_pub.publish(err_msg)
 
     # ---------------------------------------------------------
     def tag_watchdog(self):
