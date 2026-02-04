@@ -142,6 +142,15 @@ class IBVSPnPPositionController(Node):
 
         sp.pose.orientation = self.current_pose.pose.orientation
 
+        self.get_logger().info(
+            f"IBVS OUT | "
+            f"Vb [m/s]: x={Vb[0,0]:+.3f}, y={Vb[1,0]:+.3f}, z={Vb[2,0]:+.3f} | "
+            f"p_corr [m]: x={self.p_corr[0]:+.3f}, y={self.p_corr[1]:+.3f}, z={self.p_corr[2]:+.3f} | "
+            f"p_pnp [m]: x={self.p_pnp[0]:+.3f}, y={self.p_pnp[1]:+.3f}, z={self.p_pnp[2]:+.3f} | "
+            f"p_cmd [m]: x={p_cmd[0]:+.3f}, y={p_cmd[1]:+.3f}, z={p_cmd[2]:+.3f}",
+            throttle_duration_sec=0.5
+        )
+
         self.sp_pub.publish(sp)
 
         err_msg = Float32MultiArray()
