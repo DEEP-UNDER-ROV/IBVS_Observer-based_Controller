@@ -137,7 +137,8 @@ class IBVSPnPPositionController(Node):
 
         sp.pose.position.x = p_cmd[0]
         sp.pose.position.y = p_cmd[1]
-        sp.pose.position.z = p_cmd[2]
+        sp.pose.position.z = self.current_pose.pose.position.z
+        # sp.pose.position.z = p_cmd[2]
 
         sp.pose.orientation = self.current_pose.pose.orientation
 
