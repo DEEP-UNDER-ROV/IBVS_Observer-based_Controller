@@ -7,18 +7,18 @@ from geometry_msgs.msg import PoseStamped
 from mavros_msgs.msg import State
 
 # ================= CONFIG =================
-MODE = "velocity"     # "velocity" or "position"
-# MODE = "position"
+# MODE = "velocity"     # "velocity" or "position"
+MODE = "position"
 
 # Velocity mode (m/s, rad/s)
 VEL_SURGE = 0.0
-VEL_SWAY  = 0.2       # <<< TEST VALUE
+VEL_SWAY  = 1.0       # <<< TEST VALUE
 VEL_HEAVE = 0.0
 VEL_YAW   = 0.0
 
 # Position mode (meters, radians)
 POS_X = 0.0
-POS_Y = 0.5           # <<< SAME DIRECTION AS SWAY
+POS_Y = -5.0           # <<< SAME DIRECTION AS SWAY
 POS_Z = 0.0
 YAW   = 0.0
 
@@ -114,4 +114,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
