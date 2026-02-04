@@ -183,6 +183,15 @@ class IBVSControllerNode(Node):
         err_msg.data = np.array(errs, dtype=np.float32).tolist()
         self.err_pub.publish(err_msg)
 
+        self.get_logger().info(
+            "IBVS CMD | "
+            f"Vb [m/s]: x={Vb[0,0]:+.3f}, y={Vb[1,0]:+.3f}, z={Vb[2,0]:+.3f} | "
+            f"Wb [rad/s]: yaw={Wb[2,0]:+.3f} || "
+            f"PWM: surge={rc.channels[4]}, sway={rc.channels[5]}, "
+            f"heave={rc.channels[2]}, yaw={rc.channels[3]}",
+            throttle_duration_sec=0.5
+        )
+
     # ---------------------------------------------------------
     def tag_watchdog(self):
         if self.last_tag_time is None:
