@@ -35,10 +35,10 @@ class PNP_Node(Node):
         # AprilTag object points (tag frame)
         s = TAG_SIZE * 0.5
         self.object_pts = np.array([
-            [-s, -s, 0],  # matches c[3]
-            [ s, -s, 0],  # matches c[2]
-            [ s,  s, 0],  # matches c[1]
-            [-s,  s, 0],  # matches c[0]
+            [ s,  s, 0],  # matches c[3]
+            [-s,  s, 0],  # matches c[2]
+            [-s, -s, 0],  # matches c[1]
+            [ s, -s, 0],  # matches c[0]
         ], dtype=np.float32)
 
         self.world_locked = False
@@ -68,7 +68,7 @@ class PNP_Node(Node):
 
         # ---------- CRITICAL VALIDITY CHECK ----------
         # Tag must be in front of camera
-        if t_ct[2] <= self.Z_MIN:
+        if t_ct[2] <= 0.1:
             return
 
         R_ct, _ = cv2.Rodrigues(rvec)
