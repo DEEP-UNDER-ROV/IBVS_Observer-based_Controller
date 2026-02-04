@@ -41,10 +41,10 @@ class PNP_Node(Node):
             [ s, -s, 0],  # matches c[0]
         ], dtype=np.float32)
 
-        self.world_locked = False
-        self.R_wt = None
-        self.t_wt = None
-        
+        self.world_initialized = False
+        self.R_wc0 = None
+        self.t_wc0 = None
+                
         self.get_logger().info("PnP Node Initialized")
 
     # ---------------------------------------------------------
@@ -87,9 +87,13 @@ class PNP_Node(Node):
         # WORLD INITIALIZATION (OPTION A)
         # ===================================================
         if not self.world_initialized:
-            # Freeze world frame at first detection
-            self.R_wt = np.eye(3)          # world == tag at init
-            self.t_wt = np.zeros(3)
+            # Save initial camera pose (defines world)
+            self.R_wc0 = R_tc.copy()
+            self.t_wc0 = t_tc.copy()
+        
+            self.world_initialized = True
+            self.get_logger().info("World frame initialized")
+            return
     
             # Save initial camera pose in world
             self.R_wc0 = R_tc.copy()
