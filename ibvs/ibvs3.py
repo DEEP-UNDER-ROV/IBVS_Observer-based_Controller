@@ -10,8 +10,15 @@ from geometry_msgs.msg import (
     Point
 )
 from std_msgs.msg import Float32MultiArray
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 
 from ibvs.constants import *
+
+qos = QoSProfile(
+    history=HistoryPolicy.KEEP_LAST,
+    depth=5,
+    reliability=ReliabilityPolicy.BEST_EFFORT
+)
 
 
 class IBVSPnPPositionController(Node):
@@ -22,6 +29,7 @@ class IBVSPnPPositionController(Node):
         self.sub_corners = self.create_subscription( PolygonStamped, "/apriltag/corners", self.cb_corners, 10)
         self.sub_pnp = self.create_subscription( Point, "/pnp/relative_position", self.cb_pnp, 10)
         self.sub_ekf = self.create_subscription(PoseStamped, "/mavros/local_position/pose", self.cb_ekf, 10)
+        self.sub_pose = self.create_subscription(PoseStamped, "/mavros/local_position/pose", self.cb_pose, qos)
 
         # Publisher
         self.sp_pub = self.create_publisher( PoseStamped, "/mavros/setpoint_position/local", 10)
