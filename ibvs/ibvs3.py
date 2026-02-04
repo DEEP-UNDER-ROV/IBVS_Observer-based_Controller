@@ -28,8 +28,8 @@ class IBVSPnPPositionController(Node):
         # Subscribers
         self.sub_corners = self.create_subscription( PolygonStamped, "/apriltag/corners", self.cb_corners, 10)
         self.sub_pnp = self.create_subscription( Point, "/pnp/relative_position", self.cb_pnp, 10)
-        self.sub_ekf = self.create_subscription(PoseStamped, "/mavros/local_position/pose", self.cb_ekf, 10)
-        self.sub_pose = self.create_subscription(PoseStamped, "/mavros/local_position/pose", self.cb_pose, qos)
+        # self.sub_ekf = self.create_subscription(PoseStamped, "/mavros/local_position/pose", self.cb_ekf, 10)
+        self.sub_pose = self.create_subscription(PoseStamped, "/mavros/local_position/pose", self.cb_ekf, qos)
 
         # Publisher
         self.sp_pub = self.create_publisher( PoseStamped, "/mavros/setpoint_position/local", 10)
