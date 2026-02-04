@@ -95,6 +95,12 @@ class IBVSVelocityController(Node):
         cmd.linear.z = float(np.clip(Vb[2], -MAX_LIN_VEL, MAX_LIN_VEL))
         cmd.angular.z = float(np.clip(Wb[2], -MAX_ANG_VEL, MAX_ANG_VEL))
 
+        self.get_logger().info(
+            f"Cmd vel | lin: [{cmd.linear.x:.3f}, {cmd.linear.y:.3f}, {cmd.linear.z:.3f}] "
+            f"ang_z: {cmd.angular.z:.3f}",
+            throttle_duration_sec=0.5
+        )
+
         self.vel_pub.publish(cmd)
 
         err_msg = Float32MultiArray()
