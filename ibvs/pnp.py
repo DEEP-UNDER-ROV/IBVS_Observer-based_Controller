@@ -52,58 +52,75 @@ class PNP_Node(Node):
     def cb(self, msg: PolygonStamped):
         if len(msg.polygon.points) != 4:
             return
-
+    
+        # Image points (must match object_pts order!)
         img_pts = np.array(
-            [[p.x, p.y] for p in msg.polygon.points], dtype=np.float32)
-
+            [[p.x, p.y] for p in msg.polygon.points],
+            dtype=np.float32
+        )
+    
         ok, rvec, tvec = cv2.solvePnP(
-            self.object_pts, img_pts,
-            self.camera_matrix, self.dist_coeffs,
-            flags=cv2.SOLVEPNP_IPPE_SQUARE)
-
+            self.object_pts,
+            img_pts,
+            self.camera_matrix,
+            self.dist_coeffs,
+            flags=cv2.SOLVEPNP_IPPE_SQUARE
+        )
+    
         if not ok:
             return
-
+    
         t_ct = tvec.reshape(3)
-
-        # ---------- CRITICAL VALIDITY CHECK ----------
-        # Tag must be in front of camera
-        if t_ct[2] <= 0.1:
+    
+        # Must be in front of camera
+        if t_ct[2] <= 0.05:
             return
-
+    
         R_ct, _ = cv2.Rodrigues(rvec)
-
-        # ---------- WORLD LOCK ----------
-        if not self.world_locked:
-            self.R_wt = R_ct.T
-            self.t_wt = -R_ct.T @ t_ct.reshape(3, 1)
-            self.world_locked = True
-            self.get_logger().info("World frame locked to AprilTag")
-
-            lock_msg = Bool()
-            lock_msg.data = True
-            self.pub_lock.publish(lock_msg)
-
-        # ---------- EXPRESS TAG IN WORLD FRAME ----------
-        t_wt = self.R_wt @ t_ct.reshape(3, 1) + self.t_wt
-
-        # ---------- PUBLISH ----------
+    
+        # ---------- CRITICAL: PLANAR DISAMBIGUATION ----------
+        # Tag Z-axis (normal) must point toward camera
+        # Tag normal in camera frame = third column of R_ct
+        if R_ct[2, 2] <= 0.0:
+            return
+    
+        # ---------- CAMERA POSE IN WORLD (TAG) FRAME ----------
+        # world == tag
+        R_wc = R_ct.T
+        t_wc = -R_ct.T @ t_ct.reshape(3, 1)
+    
+        # ---------- COORDINATE REMAP (camera optical → body proxy) ----------
+        # Optical: x right, y down, z forward
+        # Body-like: x forward, y right, z down
+        x = float(t_wc[2])
+        y = float(-t_wc[0])
+        z = float(-t_wc[1])
+    
+        # ---------- YAW-ONLY ORIENTATION ----------
+        yaw = math.atan2(R_wc[1, 0], R_wc[0, 0])
+        qx = 0.0
+        qy = 0.0
+        qz = math.sin(0.5 * yaw)
+        qw = math.cos(0.5 * yaw)
+    
+        # ---------- DEBUG / IBVS ----------
+        self.rel_pub.publish(Point(x=x, y=y, z=z))
+    
+        # ---------- MAVROS VISION POSE ----------
         pose = PoseStamped()
         pose.header = msg.header
-        pose.header.frame_id = "world"
-
-        pose.pose.position.x = float(t_wt[0])
-        pose.pose.position.y = float(t_wt[1])
-        pose.pose.position.z = float(t_wt[2])
-
-        # Orientation (camera-relative, optional)
-        q = self.rotation_to_quaternion(self.R_wt @ R_ct)
-        pose.pose.orientation.x = q[0]
-        pose.pose.orientation.y = q[1]
-        pose.pose.orientation.z = q[2]
-        pose.pose.orientation.w = q[3]
-
-        self.pub_pose.publish(pose)
+        pose.header.frame_id = "tag_world"
+    
+        pose.pose.position.x = x
+        pose.pose.position.y = y
+        pose.pose.position.z = z
+    
+        pose.pose.orientation.x = qx
+        pose.pose.orientation.y = qy
+        pose.pose.orientation.z = qz
+        pose.pose.orientation.w = qw
+    
+        self.pose_pub.publish(pose)
 
     # ----------------------------------------------------
 
