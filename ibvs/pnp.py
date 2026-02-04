@@ -72,11 +72,22 @@ class PNP_Node(Node):
             self.camera_matrix, self.dist_coeffs,
             flags=cv2.SOLVEPNP_IPPE_SQUARE)
 
-        if not ok or tvec[2] <= 0.0:
+        if not ok:
             return
 
+        # Camera-from-tag rotation
         R_ct, _ = cv2.Rodrigues(rvec)
         t_ct = tvec.reshape(3, 1)
+        
+        # --- Physical validity checks ---
+        # 1. Tag center must be in front of camera
+        if t_ct[2, 0] <= 0.0:
+            return
+        
+        # 2. Tag normal must point toward camera
+        z_tag_cam = R_ct[:, 2]
+        if z_tag_cam[2] <= 0.0:
+            return
 
         # Lock world frame on first detection
         if not self.world_locked:
