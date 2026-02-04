@@ -81,7 +81,7 @@ class IBVS_Telemetry(Node):
         )
 
         # ---------------- Efficiency controls ----------------
-        self.detect_div = 3              # 30 Hz → 10 Hz detection
+        self.detect_div = 1              # 30 Hz → 10 Hz detection
         self.frame_count = 0
 
         self.publish_full_depth = False  # enable only for rosbag
