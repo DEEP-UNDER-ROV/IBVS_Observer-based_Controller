@@ -1,68 +1,74 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
-
 import numpy as np
 import math
 
-from geometry_msgs.msg import PolygonStamped, Twist, PoseStamped
+from geometry_msgs.msg import (
+    PolygonStamped,
+    PoseStamped,
+    Point
+)
 from std_msgs.msg import Float32MultiArray
 
 from ibvs.constants import *
 
 
-class IBVSControllerNode(Node):
+class IBVSPnPPositionController(Node):
     def __init__(self):
-        super().__init__("IBVS_Controller")
+        super().__init__("ibvs_pnp_position_controller")
 
-        # ---------------- Subscribers ----------------
-        self.sub_corners = self.create_subscription(PolygonStamped,"/apriltag/corners", self.cb_corners, 10)
-        self.sub_pose = self.create_subscription(PoseStamped,"/mavros/local_position/pose", self.cb_pose, 10)
+        # Subscribers
+        self.sub_corners = self.create_subscription( PolygonStamped, "/apriltag/corners", self.cb_corners, 10)
+        self.sub_pnp = self.create_subscription( Point, "/pnp/relative_position", self.cb_pnp, 10)
+        self.sub_ekf = self.create_subscription(PoseStamped, "/mavros/local_position/pose", self.cb_ekf, 10)
 
-        # ---------------- Publishers ----------------
-        self.vel_pub = self.create_publisher(Twist, "/ibvs/vel", 10)
-        self.err_pub = self.create_publisher(Float32MultiArray, "/ibvs/error", 10)
+        # Publisher
+        self.sp_pub = self.create_publisher( PoseStamped, "/mavros/setpoint_position/local", 10)
+        self.err_pub = self.create_publisher( Float32MultiArray, "/ibvs/error", 10)
 
-        # ---------------- State ----------------
-        self.current_pose = None
+        self.desired_pts = self.compute_desired_corners( Z_DES, FX, FY, CX, CY, TAG_SIZE)
+
+        self.p_pnp = np.zeros(3)
+        self.p_corr = np.zeros(3)
         self.last_time = self.get_clock().now()
+        self.current_pose = None
+        self.yaw = 0.0
 
-        # Desired image features (pixels)
-        self.desired_pts = self.desired_corners(
-            Z_DES, FX, FY, CX, CY, TAG_SIZE
-        )
-
-        self.get_logger().info("IBVS Controller (depth-optimized) started")
+        self.get_logger().info("IBVS + PnP POSITION controller running")
 
     # -------------------------------------------------
 
-    def cb_pose(self, msg):
-        self.current_pose = msg
-
-    # -------------------------------------------------
-
-    @staticmethod
-    def desired_corners(Z, fx, fy, cx, cy, tag_size):
-        half = tag_size / 2.0
-        corners = np.array([
-            [-half, -half, Z],
-            [ half, -half, Z],
-            [ half,  half, Z],
-            [-half,  half, Z],
+    def compute_desired_corners(self, Z, fx, fy, cx, cy, tag_size):
+        h = tag_size / 2.0
+        obj = np.array([
+            [-h, -h, Z],
+            [ h, -h, Z],
+            [ h,  h, Z],
+            [-h,  h, Z],
         ])
 
-        pts = np.zeros((4, 2))
-        for i, (X, Y, Zc) in enumerate(corners):
-            pts[i, 0] = fx * X / Zc + cx
-            pts[i, 1] = fy * Y / Zc + cy
-        return pts
+        img = np.zeros((4, 2))
+        for i, (X, Y, Zc) in enumerate(obj):
+            img[i, 0] = fx * X / Zc + cx
+            img[i, 1] = fy * Y / Zc + cy
+        return img
+
+    # -------------------------------------------------
+
+    def cb_pnp(self, msg):
+        self.p_pnp[:] = [msg.x, msg.y, msg.z]
+
+    def cb_ekf(self, msg):
+        self.current_pose = msg
+        q = msg.pose.orientation
+        self.yaw = math.atan2(2*q.w*q.z, 1 - 2*q.z*q.z)
 
     # -------------------------------------------------
 
     def interaction_matrix(self, u, v, Z):
         x = (u - CX) / FX
         y = (v - CY) / FY
-
         return np.array([
             [-1/Z,  0,    x/Z,   x*y,     -(1 + x*x),  y],
             [0,    -1/Z,  y/Z,   1 + y*y, -x*y,       -x],
@@ -78,55 +84,60 @@ class IBVSControllerNode(Node):
         now = self.get_clock().now()
         dt = (now - self.last_time).nanoseconds * 1e-9
         self.last_time = now
-        if dt <= 0.0:
+        if dt <= 0:
             return
 
-        rows = []
-        errs = []
+        rows, errs = [], []
 
         for i, p in enumerate(msg.polygon.points):
             u, v, Z = p.x, p.y, p.z
-            if Z <= 0.1:
+            if Z <= 0.2:
                 return
 
             rows.append(self.interaction_matrix(u, v, Z))
 
-            x, y = (u - CX) / FX, (v - CY) / FY
+            x, y = (u - CX)/FX, (v - CY)/FY
             xd, yd = (self.desired_pts[i] - [CX, CY]) / [FX, FY]
-
             errs.extend([x - xd, y - yd, Z - Z_DES])
 
         L = np.vstack(rows)
         e = np.array(errs).reshape(-1, 1)
 
         mu = 0.01
-        Vc = -LAMBDA_P * np.linalg.inv(
-            L.T @ L + mu * np.eye(6)
-        ) @ L.T @ e
+        Vc = -LAMBDA_P * np.linalg.inv(L.T @ L + mu * np.eye(6)) @ L.T @ e
 
         v_c = Vc[0:3]
         w_c = Vc[3:6]
 
-        # Camera → body transform
         Wb = R_CB @ w_c
         Vb = (R_CB @ v_c) + np.cross(Wb.flatten(), P_CB).reshape(3, 1)
 
-        vel = Twist()
-        vel.linear.x = float(np.clip(Vb[0], -MAX_LIN_VEL, MAX_LIN_VEL))
-        vel.linear.y = float(np.clip(Vb[1], -MAX_LIN_VEL, MAX_LIN_VEL))
-        vel.linear.z = float(np.clip(Vb[2], -MAX_LIN_VEL, MAX_LIN_VEL))
-        vel.angular.z = float(np.clip(Wb[2], -MAX_ANG_VEL, MAX_ANG_VEL))
+        # --- IBVS INTEGRATION ---
+        self.p_corr += Vb.flatten() * dt
+        self.p_corr = np.clip(self.p_corr, -MAX_OFFSET, MAX_OFFSET)
 
-        self.vel_pub.publish(vel)
+        p_cmd = self.p_pnp + self.p_corr
+
+        sp = PoseStamped()
+        sp.header.stamp = now.to_msg()
+        sp.header.frame_id = "map"
+
+        sp.pose.position.x = p_cmd[0]
+        sp.pose.position.y = p_cmd[1]
+        sp.pose.position.z = p_cmd[2]
+
+        sp.pose.orientation = self.current_pose.pose.orientation
+
+        self.sp_pub.publish(sp)
 
         err_msg = Float32MultiArray()
-        err_msg.data = np.array(errs, dtype=np.float32).tolist()
+        err_msg.data = errs
         self.err_pub.publish(err_msg)
 
 
 def main():
     rclpy.init()
-    rclpy.spin(IBVSControllerNode())
+    rclpy.spin(IBVSPnPPositionController())
     rclpy.shutdown()
 
 
