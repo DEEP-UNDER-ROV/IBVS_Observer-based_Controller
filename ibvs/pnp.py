@@ -46,12 +46,16 @@ class PNP_Node(Node):
         # AprilTag object points (tag frame)
         s = TAG_SIZE * 0.5
         self.object_pts = np.array([
-            [-s,  s, 0],
-            [ s,  s, 0],
-            [ s, -s, 0],
-            [-s, -s, 0]
+            [-s, -s, 0],  # matches c[3]
+            [ s, -s, 0],  # matches c[2]
+            [ s,  s, 0],  # matches c[1]
+            [-s,  s, 0],  # matches c[0]
         ], dtype=np.float32)
 
+        self.world_locked = False
+        self.R_wt = None
+        self.t_wt = None
+        
         self.get_logger().info("PnP Node Initialized")
 
     # ---------------------------------------------------------
@@ -71,30 +75,35 @@ class PNP_Node(Node):
         if not ok or tvec[2] <= 0.0:
             return
 
-        # Rotation: tag -> camera
-        R_cm, _ = cv2.Rodrigues(rvec)
-        t_cm = tvec.reshape(3, 1)
+        R_ct, _ = cv2.Rodrigues(rvec)
+        t_ct = tvec.reshape(3, 1)
 
-        # Invert transform: camera pose in tag(world) frame
-        R_mc = R_cm.T
-        t_mc = -R_cm.T @ t_cm
+        # Lock world frame on first detection
+        if not self.world_locked:
+            self.R_wt = np.eye(3)
+            self.t_wt = np.zeros((3, 1))
+            self.world_locked = True
+            self.get_logger().info("World frame locked to AprilTag")
 
-        # Camera optical → ROS ENU (or body-aligned proxy)
-        x = float(t_mc[2])      # forward
-        y = float(-t_mc[0])     # right
-        z = float(-t_mc[1])     # down
+        # Camera pose in world (tag) frame
+        R_wc = self.R_wt @ R_ct.T
+        t_wc = self.R_wt @ (-R_ct.T @ t_ct) + self.t_wt
 
-        # Yaw from rotation
-        yaw = math.atan2(R_mc[1, 0], R_mc[0, 0])
-        qx, qy, qz, qw = quaternion_from_yaw(yaw)
+        # Optical → ENU-like proxy (consistent with IBVS)
+        x = float(t_wc[2])
+        y = float(-t_wc[0])
+        z = float(-t_wc[1])
 
-        # Publish relative position (debug / IBVS)
+        # Yaw from world-aligned rotation
+        yaw = math.atan2(R_wc[1, 0], R_wc[0, 0])
+        qx, qy, qz, qw = yaw_to_quaternion(yaw)
+
+        # Debug / IBVS-relative position
         self.rel_pub.publish(Point(x=x, y=y, z=z))
 
-        # Publish MAVROS vision pose
         pose = PoseStamped()
-        pose.header = msg.header
-        pose.header.frame_id = "tag_world"
+        pose.header.stamp = msg.header.stamp
+        pose.header.frame_id = "vision"
 
         pose.pose.position.x = x
         pose.pose.position.y = y
@@ -106,22 +115,6 @@ class PNP_Node(Node):
         pose.pose.orientation.w = qw
 
         self.pose_pub.publish(pose)
-
-    @staticmethod
-    def euler_to_quaternion(roll, pitch, yaw):
-        cy = math.cos(yaw * 0.5)
-        sy = math.sin(yaw * 0.5)
-        cp = math.cos(pitch * 0.5)
-        sp = math.sin(pitch * 0.5)
-        cr = math.cos(roll * 0.5)
-        sr = math.sin(roll * 0.5)
-
-        return (
-            sr * cp * cy - cr * sp * sy,
-            cr * sp * cy + sr * cp * sy,
-            cr * cp * sy - sr * sp * cy,
-            cr * cp * cy + sr * sp * sy
-        )
 
 
 def main():
