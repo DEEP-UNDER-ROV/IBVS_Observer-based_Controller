@@ -39,20 +39,25 @@ class IBVSPnPPositionController(Node):
 
     # -------------------------------------------------
 
-    def compute_desired_corners(self, Z, fx, fy, cx, cy, tag_size):
-        h = tag_size / 2.0
-        obj = np.array([
-            [-h, -h, Z],
-            [ h, -h, Z],
-            [ h,  h, Z],
-            [-h,  h, Z],
+    def compute_desired_corners(self, Z_des, fx, fy, cx, cy, tag_size):
+        s = TAG_SIZE / 2.0
+    
+        # Tag corners in camera frame (meters)
+        corners_3d = np.array([
+            [-s, -s, Z_des],
+            [ s, -s, Z_des],
+            [ s,  s, Z_des],
+            [-s,  s, Z_des],
         ])
-
-        img = np.zeros((4, 2))
-        for i, (X, Y, Zc) in enumerate(obj):
-            img[i, 0] = fx * X / Zc + cx
-            img[i, 1] = fy * Y / Zc + cy
-        return img
+    
+        desired = np.zeros((4, 2), dtype=np.float32)
+    
+        for i, (X, Y, Z) in enumerate(corners_3d):
+            u = FX * (X / Z) + CX
+            v = FY * (Y / Z) + CY
+            desired[i] = [u, v]
+    
+        return desired
 
     # -------------------------------------------------
 
