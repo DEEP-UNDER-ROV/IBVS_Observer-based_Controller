@@ -177,13 +177,13 @@ class IBVSControllerNode(Node):
         rc.channels[2] = self.vel_to_pwm(Vb[2], self.K_HEAVE) + self.HEAVE_BIAS
         rc.channels[3] = self.vel_to_pwm(Wb[2], self.K_YAW)        # Yaw
 
-        print(
-            f"Vb = [{Vb[0,0]:+.3f}, {Vb[1,0]:+.3f}, {Vb[2,0]:+.3f}] | "
-            f"Wb_z = {Wb[2,0]:+.3f} | "
-            f"PWM = S:{rc.channels[4]} "
-            f"SW:{rc.channels[5]} "
-            f"H:{rc.channels[2]} "
-            f"Y:{rc.channels[3]}"
+        self.get_logger().info(
+            "IBVS CMD | "
+            f"Vb [m/s]: x={Vb[0,0]:+.3f}, y={Vb[1,0]:+.3f}, z={Vb[2,0]:+.3f} | "
+            f"Wb [rad/s]: yaw={Wb[2,0]:+.3f} || "
+            f"PWM: surge={rc.channels[4]}, sway={rc.channels[5]}, "
+            f"heave={rc.channels[2]}, yaw={rc.channels[3]}",
+            throttle_duration_sec=0.5
         )
 
         self.rc_pub.publish(rc)
