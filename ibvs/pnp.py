@@ -12,17 +12,6 @@ from std_msgs.msg import Header
 
 from ibvs.constants import *
 
-
-def quaternion_from_yaw(yaw):
-    """Yaw-only quaternion (roll = pitch = 0)"""
-    return (
-        0.0,
-        0.0,
-        math.sin(yaw * 0.5),
-        math.cos(yaw * 0.5)
-    )
-
-
 class PNP_Node(Node):
     def __init__(self):
         super().__init__("PNP_Node")
@@ -75,57 +64,56 @@ class PNP_Node(Node):
         if not ok:
             return
 
-        # Camera-from-tag rotation
-        R_ct, _ = cv2.Rodrigues(rvec)
-        t_ct = tvec.reshape(3, 1)
-        
-        # --- Physical validity checks ---
-        # 1. Tag center must be in front of camera
-        if t_ct[2, 0] <= 0.0:
-            return
-        
-        # 2. Tag normal must point toward camera
-        z_tag_cam = R_ct[:, 2]
-        if z_tag_cam[2] <= 0.0:
+        t_ct = tvec.reshape(3)
+
+        # ---------- CRITICAL VALIDITY CHECK ----------
+        # Tag must be in front of camera
+        if t_ct[2] <= self.Z_MIN:
             return
 
-        # Lock world frame on first detection
+        R_ct, _ = cv2.Rodrigues(rvec)
+
+        # ---------- WORLD LOCK ----------
         if not self.world_locked:
-            self.R_wt = np.eye(3)
-            self.t_wt = np.zeros((3, 1))
+            self.R_wt = R_ct.T
+            self.t_wt = -R_ct.T @ t_ct.reshape(3, 1)
             self.world_locked = True
             self.get_logger().info("World frame locked to AprilTag")
 
-        # Camera pose in world (tag) frame
-        R_wc = self.R_wt @ R_ct.T
-        t_wc = self.R_wt @ (-R_ct.T @ t_ct) + self.t_wt
+            lock_msg = Bool()
+            lock_msg.data = True
+            self.pub_lock.publish(lock_msg)
 
-        # Optical → ENU-like proxy (consistent with IBVS)
-        x = float(t_wc[2])
-        y = float(-t_wc[0])
-        z = float(-t_wc[1])
+        # ---------- EXPRESS TAG IN WORLD FRAME ----------
+        t_wt = self.R_wt @ t_ct.reshape(3, 1) + self.t_wt
 
-        # Yaw from world-aligned rotation
-        yaw = math.atan2(R_wc[1, 0], R_wc[0, 0])
-        qx, qy, qz, qw = yaw_to_quaternion(yaw)
-
-        # Debug / IBVS-relative position
-        self.rel_pub.publish(Point(x=x, y=y, z=z))
-
+        # ---------- PUBLISH ----------
         pose = PoseStamped()
-        pose.header.stamp = msg.header.stamp
-        pose.header.frame_id = "vision"
+        pose.header = msg.header
+        pose.header.frame_id = "world"
 
-        pose.pose.position.x = x
-        pose.pose.position.y = y
-        pose.pose.position.z = z
+        pose.pose.position.x = float(t_wt[0])
+        pose.pose.position.y = float(t_wt[1])
+        pose.pose.position.z = float(t_wt[2])
 
-        pose.pose.orientation.x = qx
-        pose.pose.orientation.y = qy
-        pose.pose.orientation.z = qz
-        pose.pose.orientation.w = qw
+        # Orientation (camera-relative, optional)
+        q = self.rotation_to_quaternion(self.R_wt @ R_ct)
+        pose.pose.orientation.x = q[0]
+        pose.pose.orientation.y = q[1]
+        pose.pose.orientation.z = q[2]
+        pose.pose.orientation.w = q[3]
 
-        self.pose_pub.publish(pose)
+        self.pub_pose.publish(pose)
+
+    # ----------------------------------------------------
+
+    @staticmethod
+    def rotation_to_quaternion(R):
+        qw = np.sqrt(1.0 + np.trace(R)) / 2.0
+        qx = (R[2, 1] - R[1, 2]) / (4.0 * qw)
+        qy = (R[0, 2] - R[2, 0]) / (4.0 * qw)
+        qz = (R[1, 0] - R[0, 1]) / (4.0 * qw)
+        return qx, qy, qz, qw
 
 
 def main():
