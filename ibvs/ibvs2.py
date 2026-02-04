@@ -29,20 +29,25 @@ class IBVSVelocityController(Node):
     # -------------------------------------------------
 
     @staticmethod
-    def compute_desired_corners(Z, fx, fy, cx, cy, tag_size):
-        h = tag_size / 2.0
-        obj = np.array([
-            [-h, -h, Z],
-            [ h, -h, Z],
-            [ h,  h, Z],
-            [-h,  h, Z],
+    def compute_desired_corners(Z_des, fx, fy, cx, cy, tag_size):
+        s = TAG_SIZE / 2.0
+    
+        # Tag corners in camera frame (meters)
+        corners_3d = np.array([
+            [-s, -s, Z_des],
+            [ s, -s, Z_des],
+            [ s,  s, Z_des],
+            [-s,  s, Z_des],
         ])
-
-        img = np.zeros((4, 2))
-        for i, (X, Y, Zc) in enumerate(obj):
-            img[i, 0] = fx * X / Zc + cx
-            img[i, 1] = fy * Y / Zc + cy
-        return img
+    
+        desired = np.zeros((4, 2), dtype=np.float32)
+    
+        for i, (X, Y, Z) in enumerate(corners_3d):
+            u = FX * (X / Z) + CX
+            v = FY * (Y / Z) + CY
+            desired[i] = [u, v]
+    
+        return desired
 
     # -------------------------------------------------
 
@@ -94,7 +99,7 @@ class IBVSVelocityController(Node):
         cmd.linear.y = float(np.clip(Vb[1], -MAX_LIN_VEL, MAX_LIN_VEL))
         cmd.linear.z = float(np.clip(Vb[2], -MAX_LIN_VEL, MAX_LIN_VEL))
         cmd.angular.z = float(np.clip(Wb[2], -MAX_ANG_VEL, MAX_ANG_VEL))
-
+        
         self.get_logger().info(
             f"Cmd vel | lin: [{cmd.linear.x:.3f}, {cmd.linear.y:.3f}, {cmd.linear.z:.3f}] "
             f"ang_z: {cmd.angular.z:.3f}",
