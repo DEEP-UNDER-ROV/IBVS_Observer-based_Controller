@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import qos_profile_sensor_data
 import numpy as np
 
 from geometry_msgs.msg import PolygonStamped
@@ -30,9 +31,21 @@ class IBVSControllerNode(Node):
 
         # ---------------- Subscribers ----------------
         self.sub_corners = self.create_subscription(
-            PolygonStamped, "/apriltag/corners", self.cb_corners, 10)
+            PolygonStamped,
+            "/apriltag/corners",
+            self.cb_corners,
+            qos_profile_sensor_data
+        )
         self.sub_depth = self.create_subscription(
-            Image, "/camera/depth/image_raw", self.cb_depth, 10)
+            Image,
+            "/camera/depth/image_raw",
+            self.cb_depth,
+            qos_profile_sensor_data
+        )
+        # self.sub_corners = self.create_subscription(
+        #     PolygonStamped, "/apriltag/corners", self.cb_corners, 10)
+        # self.sub_depth = self.create_subscription(
+        #     Image, "/camera/depth/image_raw", self.cb_depth, 10)
 
         # ---------------- Publishers ----------------
         self.rc_pub = self.create_publisher(
