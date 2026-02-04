@@ -161,13 +161,15 @@ class IBVS_Telemetry(Node):
             gray = cv2.cvtColor(color, cv2.COLOR_BGR2GRAY)
             gray_small = cv2.resize(gray, (640, 360), interpolation=cv2.INTER_AREA)
             detections = self.detector.detect(gray_small)
+            sx = color.shape[1] / gray_small.shape[1]
+            sy = color.shape[0] / gray_small.shape[0]
 
             if detections:
                 tag = detections[0]
                 raw_pts = self.order_corners_apriltag(tag.corners)
-                raw_pts[:, 0] *= 2.0
-                raw_pts[:, 1] *= 2.0
-
+                raw_pts[:, 0] *= sx
+                raw_pts[:, 1] *= sy
+                
                 pts = raw_pts.reshape(-1, 1, 2)
                 undistorted = cv2.undistortPoints(
                     pts, self.camera_matrix, self.dist_coeffs, P=self.camera_matrix
@@ -177,16 +179,20 @@ class IBVS_Telemetry(Node):
                 poly = PolygonStamped()
                 poly.header.stamp = stamp
                 poly.header.frame_id = "camera_color_optical_frame"
+                valid = True
                 
                 for (u, v) in undistorted_pts:
                     Z = self.sample_depth(depth, u, v)
                     if Z is None:
-                        return
+                        valid = False
+                        break
                         
                     p = Point32()
-                    p.x, p.y, p.z = float(u), float(v), Z
+                    p.x, p.y, p.z = float(u), float(v), float(Z)
                     poly.polygon.points.append(p)
-                self.corners_pub.publish(poly)
+                    
+                if valid:
+                    self.corners_pub.publish(poly)
 
         # ---------------- Streaming ----------------
         stream = cv2.resize(color, (640, 480))
@@ -221,7 +227,7 @@ class IBVS_Telemetry(Node):
                 cv2.putText(stream, f"Center Err: X:{ex:+.2f} Y:{ey:+.2f} Z:{ez:+.2f}",
                             (x0, y0), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
             elif num_elements == 2:
-                ex, ey = e[i*2:(i+1)*2]
+                ex, ey = e
                 cv2.putText(stream, f"Center Err: X:{ex:+.2f} Y:{ey:+.2f}",
                             (x0, y0), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
         
@@ -233,7 +239,7 @@ class IBVS_Telemetry(Node):
             cv2.putText(stream, f"Vz:{v.linear.z:+.2f}", (20,85), 2,  0.5, (0,128,255), 2)
             cv2.putText(stream, f"Wx:{v.angular.x:+.2f}", (20,105), 2, 0.5, (0,128,255), 2)
             cv2.putText(stream, f"Wy:{v.angular.y:+.2f}", (20,125), 2, 0.5, (0,128,255), 2)
-            cv2.putText(stream, f"Wz:{v.angular.z:+.2f}", (20,125), 2, 0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Wz:{v.angular.z:+.2f}", (20,145), 2, 0.5, (0,128,255), 2)
 
         if self.current_tvec is not None:
             z_val = self.current_tvec.vector.z
