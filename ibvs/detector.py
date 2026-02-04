@@ -17,7 +17,6 @@ from ibvs.constants import *
 
 
 class IBVS_Telemetry(Node):
-
     def desired_corners_from_Z(self, Z_des):
         half = TAG_SIZE / 2.0
         corners_3d = np.array([
@@ -158,21 +157,86 @@ class IBVS_Telemetry(Node):
                 poly = PolygonStamped()
                 poly.header.stamp = stamp
                 poly.header.frame_id = "camera_color_optical_frame"
-                for u, v in undistorted_pts:
-                    poly.polygon.points.append(Point32(x=float(u), y=float(v), z=0.0))
+                
+                for (u, v) in undistorted_pts:
+                    p = Point32()
+                    p.x, p.y, p.z = float(u), float(v), 0.0
+                    poly.polygon.points.append(p)
                 self.corners_pub.publish(poly)
 
         # ---------------- Streaming ----------------
         stream = cv2.resize(color, (640, 480))
         sx, sy = 640 / 1280, 480 / 720
 
-        desired_draw = (self.desired * [sx, sy]).astype(np.int32).reshape(-1, 1, 2)
+        desired_draw = (self.desired * np.array([sx, sy])).astype(np.int32).reshape(-1, 1, 2)
         cv2.polylines(stream, [desired_draw], True, (0, 0, 255), 2)
 
         if undistorted_pts is not None:
-            pts_u = (undistorted_pts * [sx, sy]).astype(np.int32)
-            cv2.polylines(stream, [pts_u], True, (0, 255, 0), 2)
+            pts_u = np.asarray(undistorted_pts).reshape(4, 2)
+            pts_u_draw = (pts_u * [sx, sy]).astype(np.int32)
+            cv2.polylines(stream, [pts_u_draw], True, (0, 255, 0), 2)
 
+        if raw_pts is not None:
+            pts_r = np.asarray(raw_pts).reshape(4, 2)
+            pts_r_draw = (pts_r * [sx, sy]).astype(np.int32)
+            cv2.polylines(stream, [pts_r_draw], True, (0, 180, 180), 1)
+
+        # --- Error Overlay ---
+        if self.current_err is not None:
+            e = np.asarray(self.current_err.data)
+            
+            x0, y0, dy = 153, 25, 20
+            num_elements = len(e)
+            if num_elements == 12:
+                for i in range(4):
+                    ex, ey, ez = e[i*3:(i+1)*3]
+                    cv2.putText(stream, f"P{i+1}: ex={ex:+.2f}px  ey={ey:+.2f}px  ez={ez:+.2f} m",
+                        (x0, y0 + i * dy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+            elif num_elements == 3:
+                ex, ey, ez = e
+                cv2.putText(stream, f"Center Err: X:{ex:+.2f} Y:{ey:+.2f} Z:{ez:+.2f}",
+                            (x0, y0), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+            elif num_elements == 2:
+                ex, ey = e[i*2:(i+1)*2]
+                cv2.putText(stream, f"Center Err: X:{ex:+.2f} Y:{ey:+.2f}",
+                            (x0, y0), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+        
+        
+        if self.current_vel is not None:
+            v = self.current_vel
+            cv2.putText(stream, f"Vx:{v.linear.x:+.2f}", (20,45), 2,  0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Vy:{v.linear.y:+.2f}", (20,65), 2,  0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Vz:{v.linear.z:+.2f}", (20,85), 2,  0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Wx:{v.angular.x:+.2f}", (20,105), 2, 0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Wy:{v.angular.y:+.2f}", (20,125), 2, 0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Wz:{v.angular.z:+.2f}", (20,125), 2, 0.5, (0,128,255), 2)
+
+        if self.current_tvec is not None:
+            z_val = self.current_tvec.vector.z
+            cv2.putText(stream, f"Range:{z_val:.3f} m", (20,25), 2,  0.5, (51,255,153), 2)
+            
+        if self.current_pos is not None:
+            p = self.current_pos
+            cv2.putText(stream, f"Offset X:{p.x:+.2f}m", (20,150), 2,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Offset Y:{p.y:+.2f}m", (20,170), 2,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Offset Z:{p.z:+.2f}m", (20,190), 2,  0.5, (51,255,153), 2)
+
+        if self.current_rc is not None:
+            rc = self.current_rc
+            cv2.putText(stream, f"Surge :{rc.channels[4]:+.2f}", (20,150), 2,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Sway  :{rc.channels[5]:+.2f}", (20,170), 2,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Heave :{rc.channels[2]:+.2f}", (20,190), 2,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Yaw   :{rc.channels[3]:+.2f}", (20,210), 2,  0.5, (51,255,153), 2)
+
+        # --- Actual Motor PWMs ---
+        if self.current_rc_out is not None:
+            mx, my = 20, 230 
+            for i in range(8):
+                if i < len(self.current_rc_out.channels):
+                    pwm = self.current_rc_out.channels[i]
+                    cv2.putText(stream, f"M{i+1}: {pwm}", (mx, my + (i * 20)), 2, 0.5, (0, 255, 0), 1)
+                    
+        # Push to QGC
         self.video_writer.write(stream)
 
         # ---------------- Image publish (rate limited) ----------------
