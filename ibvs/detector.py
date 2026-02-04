@@ -88,7 +88,7 @@ class IBVS_Telemetry(Node):
         self.img_pub_period = 1.0 / 20.0 # image @ 20 Hz
         self.last_img_pub = 0.0
 
-        PATCH = 3
+        self.PATCH = 3
 
         # ---------------- Video Stream ----------------
         gst_pipeline = (
@@ -125,8 +125,8 @@ class IBVS_Telemetry(Node):
             return None
 
         patch = depth[
-            max(0, vi-PATCH):min(h, vi+PATCH+1),
-            max(0, ui-PATCH):min(w, ui+PATCH+1)
+            max(0, vi-self.PATCH):min(h, vi+self.PATCH+1),
+            max(0, ui-self.PATCH):min(w, ui+self.PATCH+1)
         ]
 
         valid = patch[patch > 0]
