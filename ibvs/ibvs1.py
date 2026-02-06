@@ -122,6 +122,7 @@ class IBVSRCController(Node):
 
     # =========================================================
     def cb_corners(self, msg):
+        self.get_logger().warn("cb_corners TRIGGERED", throttle_duration_sec=1.0)
         if self.depth_img is None or len(msg.polygon.points) != 4:
             return
 
