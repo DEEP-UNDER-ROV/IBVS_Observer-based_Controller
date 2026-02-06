@@ -184,6 +184,15 @@ class IBVSRCController(Node):
         rc.channels[2] = self.vel_to_pwm(Vb[2,0], self.K_HEAVE, self.HEAVE_BIAS)
         rc.channels[3] = self.vel_to_pwm(Wb[2,0], self.K_YAW)                 # Yaw
 
+        self.get_logger().info(
+            f"PWM OUT | "
+            f"surge={rc.channels[4]} | "
+            f"sway={rc.channels[5]} | "
+            f"heave={rc.channels[2]} | "
+            f"yaw={rc.channels[3]}",
+            throttle_duration_sec=0.5
+        )
+
         self.rc_pub.publish(rc)
 
         # ---------------- Debug error ----------------
