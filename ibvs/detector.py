@@ -31,6 +31,30 @@ class IBVS_Telemetry(Node):
             desired[i] = [FX * X / Z + CX, FY * Y / Z + CY]
         return desired
 
+    def reorder_corners_ccw(self, pts):
+        center = np.mean(pts, axis=0)
+    
+        ordered = []
+    
+        for p in pts:
+            if p[0] < center[0] and p[1] < center[1]:
+                ordered.append(("TL", p))
+            elif p[0] > center[0] and p[1] < center[1]:
+                ordered.append(("TR", p))
+            elif p[0] > center[0] and p[1] > center[1]:
+                ordered.append(("BR", p))
+            else:
+                ordered.append(("BL", p))
+    
+        ordered_dict = {name: point for name, point in ordered}
+    
+        return np.array([
+            ordered_dict["TL"],
+            ordered_dict["TR"],
+            ordered_dict["BR"],
+            ordered_dict["BL"]
+        ], dtype=float)
+
     def __init__(self):
         super().__init__("IBVS_Telemetry")
         self.get_logger().info("Telemetry Node Started")
@@ -69,6 +93,9 @@ class IBVS_Telemetry(Node):
         cfg.enable_stream(rs.stream.depth, 1280, 720, rs.format.z16, 30)
         self.pipeline.start(cfg)
         self.align = rs.align(rs.stream.color)
+        self.spatial = rs.spatial_filter()
+        self.temporal = rs.temporal_filter()
+        self.hole_filling = rs.hole_filling_filter()
 
         self.bridge = CvBridge()
 
@@ -77,6 +104,7 @@ class IBVS_Telemetry(Node):
             families="tag36h11",
             nthreads=2,
             quad_decimate=1.0,
+            quad_sigma=0.0,
             refine_edges=True
         )
 
@@ -113,9 +141,9 @@ class IBVS_Telemetry(Node):
     def cb_tvec(self, msg): self.current_tvec = msg
     def cb_err(self, msg): self.current_err = msg
 
-    @staticmethod
-    def order_corners_apriltag(c):
-        return np.array([c[3], c[2], c[1], c[0]], dtype=np.float32)
+    # @staticmethod
+    # def order_corners_apriltag(c):
+    #     return np.array([c[3], c[2], c[1], c[0]], dtype=np.float32)
 
     def sample_depth(self, depth, u, v):
         h, w = depth.shape
@@ -137,7 +165,7 @@ class IBVS_Telemetry(Node):
 
     # ---------------- Main loop ----------------
     def loop(self):
-        frames = self.pipeline.poll_for_frames()
+        frames = self.pipeline.wait_for_frames()
         if not frames:
             return
 
@@ -166,7 +194,7 @@ class IBVS_Telemetry(Node):
 
             if detections:
                 tag = detections[0]
-                raw_pts = self.order_corners_apriltag(tag.corners)
+                raw_pts = self.reorder_corners_ccw(tag.corners.astype(float))
                 raw_pts[:, 0] *= sx
                 raw_pts[:, 1] *= sy
                 
@@ -181,7 +209,7 @@ class IBVS_Telemetry(Node):
                 poly.header.frame_id = "camera_color_optical_frame"
                 valid = True
                 
-                for (u, v) in undistorted_pts:
+                for (u, v) in raw_pts:
                     Z = self.sample_depth(depth, u, v)
                     if Z is None:
                         valid = False
