@@ -84,6 +84,7 @@ class IBVSVelocityController(Node):
             x, y = (u - CX)/FX, (v - CY)/FY
             xd, yd = (self.desired_pts[i] - [CX, CY]) / [FX, FY]
             errs.extend([x - xd, y - yd, Z - Z_DES])
+            # errs.extend([x - xd, y - yd, 0.25*(Z - Z_DES)])
 
         err_array = np.array(errs).reshape(4, 3)
         L = np.vstack(rows)
