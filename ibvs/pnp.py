@@ -123,7 +123,7 @@ class PNP_Node(Node):
         # ---- Publish MAVROS vision pose ----
         pose = PoseStamped()
         pose.header = msg.header
-        pose.header.frame_id = "world"
+        pose.header.frame_id = "map"
     
         pose.pose.position.x = x
         pose.pose.position.y = y
