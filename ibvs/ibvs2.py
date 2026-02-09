@@ -69,12 +69,16 @@ class IBVSVelocityController(Node):
 
         rows = []
         errs = []
+        pixel_err = []
 
         for i, p in enumerate(msg.polygon.points):
             u, v, Z = p.x, p.y, p.z
             if Z <= 0:
                 return
-
+                
+            ud, vd = self.desired_pts[i]
+            pixel_err.append(u - ud)
+            pixel_err.append(v - vd)
             rows.append(self.interaction_matrix(u, v, Z))
 
             x, y = (u - CX)/FX, (v - CY)/FY
@@ -89,6 +93,9 @@ class IBVSVelocityController(Node):
         A = L.T @ L + mu**2 * np.eye(6)
         b = L.T @ e
         Vc = -LAMBDA_P * np.linalg.solve(A, b)
+
+        if np.mean(np.abs(pixel_err)) < 10.0:
+            Vc[:] = 0.0
 
         v_c = Vc[0:3]
         w_c = Vc[3:6]
