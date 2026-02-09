@@ -121,6 +121,7 @@ class IBVSPnPPositionController(Node):
             x, y = (u - CX)/FX, (v - CY)/FY
             xd, yd = (self.desired_pts[i] - [CX, CY]) / [FX, FY]
             errs.extend([x - xd, y - yd, Z - Z_DES])
+            # errs.extend([x - xd, y - yd, 0.25*(Z - Z_DES)])
 
         err_array = np.array(errs).reshape(4, 3)
         L = np.vstack(rows)
@@ -155,13 +156,12 @@ class IBVSPnPPositionController(Node):
         Vb_limited = np.clip(Vb, -MAX_LIN_VEL, MAX_LIN_VEL)
         
         # ---- ANTI-WINDUP BACK CALCULATION ----
-        windup_error = Vb - Vb_limited
         Kaw = 0.5   # anti-windup gain (tune 0.1–1.0)
         
         # ---- LEAKAGE (prevents drift over time) ----
         leak = 0.02  # small decay factor
         
-        self.p_corr += (Vb_limited - Kaw * windup_error) * dt
+        self.p_corr += (Vb_limited + Kaw*(Vb_limited - Vb)) * dt
         self.p_corr -= leak * self.p_corr * dt
         
         # ---- HARD LIMIT ----
@@ -178,7 +178,7 @@ class IBVSPnPPositionController(Node):
 
         sp = PoseStamped()
         sp.header.stamp = now.to_msg()
-        sp.header.frame_id = "world"
+        sp.header.frame_id = "map"
 
         sp.pose.position.x = p_cmd[0]
         sp.pose.position.y = p_cmd[1]
