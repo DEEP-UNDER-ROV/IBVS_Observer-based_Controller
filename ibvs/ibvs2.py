@@ -29,15 +29,15 @@ class IBVSVelocityController(Node):
     # -------------------------------------------------
 
     @staticmethod
-    def compute_desired_corners(Z_des, fx, fy, cx, cy, tag_size):
+    def compute_desired_corners(Z_DES, FX, FY, CX, CY, TAG_SIZE):
         s = TAG_SIZE / 2.0
     
         # Tag corners in camera frame (meters)
         corners_3d = np.array([
-            [-s, -s, Z_des],
-            [ s, -s, Z_des],
-            [ s,  s, Z_des],
-            [-s,  s, Z_des],
+            [-s, -s, Z_DES],
+            [ s, -s, Z_DES],
+            [ s,  s, Z_DES],
+            [-s,  s, Z_DES],
         ])
     
         desired = np.zeros((4, 2), dtype=np.float32)
@@ -72,7 +72,7 @@ class IBVSVelocityController(Node):
 
         for i, p in enumerate(msg.polygon.points):
             u, v, Z = p.x, p.y, p.z
-            if Z <= 0.2:
+            if Z <= 0:
                 return
 
             rows.append(self.interaction_matrix(u, v, Z))
@@ -81,24 +81,36 @@ class IBVSVelocityController(Node):
             xd, yd = (self.desired_pts[i] - [CX, CY]) / [FX, FY]
             errs.extend([x - xd, y - yd, Z - Z_DES])
 
+        err_array = np.array(errs).reshape(4, 3)
         L = np.vstack(rows)
         e = np.array(errs).reshape(-1, 1)
 
-        mu = 0.01
-        Vc = -LAMBDA_P * np.linalg.inv(L.T @ L + mu * np.eye(6)) @ L.T @ e
+        mu = 1
+        A = L.T @ L + mu**2 * np.eye(6)
+        b = L.T @ e
+        Vc = -LAMBDA_P * np.linalg.solve(A, b)
 
         v_c = Vc[0:3]
         w_c = Vc[3:6]
 
         # Camera → body
-        Wb = R_CB @ w_c
-        Vb = (R_CB @ v_c) + np.cross(Wb.flatten(), P_CB).reshape(3, 1)
+        v_c = v_c.reshape(3,)
+        w_c = w_c.reshape(3,)
+        
+        Wb = (R_CB @ w_c).reshape(3,)
+        Vb = (R_CB @ v_c).reshape(3,) + np.cross(Wb, P_CB.reshape(3,))
 
         cmd = Twist()
         cmd.linear.x = float(np.clip(Vb[0], -MAX_LIN_VEL, MAX_LIN_VEL))
         cmd.linear.y = float(np.clip(Vb[1], -MAX_LIN_VEL, MAX_LIN_VEL))
         cmd.linear.z = float(np.clip(Vb[2], -MAX_LIN_VEL, MAX_LIN_VEL))
         cmd.angular.z = float(np.clip(Wb[2], -MAX_ANG_VEL, MAX_ANG_VEL))
+
+        self.get_logger().info(
+            "\n".join([f"P{i+1}: {ex:+.4f} {ey:+.4f} {ez:+.4f}"
+            for i, (ex, ey, ez) in enumerate(err_array)]),
+            throttle_duration_sec=0.5
+        )
         
         self.get_logger().info(
             f"Cmd vel | lin: [{cmd.linear.x:.3f}, {cmd.linear.y:.3f}, {cmd.linear.z:.3f}] "
@@ -115,7 +127,9 @@ class IBVSVelocityController(Node):
 
 def main():
     rclpy.init()
-    rclpy.spin(IBVSVelocityController())
+    node = IBVSVelocityController()
+    rclpy.spin(node)
+    node.destroy_node()
     rclpy.shutdown()
 
 
