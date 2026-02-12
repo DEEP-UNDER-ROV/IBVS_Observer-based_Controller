@@ -132,48 +132,46 @@ class IBVSRCController(Node):
         self.last_tag_time = self.get_clock().now()
         self.tag_lost = False
 
-        rows, errs = [], []
+        rows = []
+        errs = []
+        pixel_err = []
         h, w = self.depth_img.shape
 
         for i, p in enumerate(msg.polygon.points):
-            u, v = p.x, p.y
-            ui, vi = int(u), int(v)
-
-            if not (0 <= ui < w and 0 <= vi < h):
+            u, v, Z = p.x, p.y, p.z
+            if Z <= 0:
                 return
-
-            patch = self.depth_img[
-                max(0, vi-PATCH):min(h, vi+PATCH+1),
-                max(0, ui-PATCH):min(w, ui+PATCH+1)
-            ]
-
-            valid = patch[patch > 0]
-            if valid.size == 0:
-                return
-
-            Z = float(np.median(valid))
-            if Z < 0.3 or Z > 6.0:
-                return
-
+                
+            ud, vd = self.desired_pts[i]
+            pixel_err.append(u - ud)
+            pixel_err.append(v - vd)
             rows.append(self.interaction_matrix(u, v, Z))
 
             x, y = (u - CX)/FX, (v - CY)/FY
             xd, yd = (self.desired_pts[i] - [CX, CY]) / [FX, FY]
             errs.extend([x - xd, y - yd, Z - Z_DES])
+            # errs.extend([x - xd, y - yd, 0.25*(Z - Z_DES)])
 
+        err_array = np.array(errs).reshape(4, 3)
         L = np.vstack(rows)
         e = np.array(errs).reshape(-1, 1)
 
-        mu = 0.01
-        Vc = -LAMBDA_P * np.linalg.inv(
-            L.T @ L + mu * np.eye(6)
-        ) @ L.T @ e
+        mu = 1
+        A = L.T @ L + mu**2 * np.eye(6)
+        b = L.T @ e
+        Vc = -LAMBDA_P * np.linalg.solve(A, b)
+
+        if np.mean(np.abs(pixel_err)) < 10.0:
+            Vc[:] = 0.0
 
         v_c = Vc[0:3]
         w_c = Vc[3:6]
 
-        Wb = R_CB @ w_c
-        Vb = (R_CB @ v_c) + np.cross(Wb.flatten(), P_CB).reshape(3, 1)
+        v_c = v_c.reshape(3,)
+        w_c = w_c.reshape(3,)
+        
+        Wb = (R_CB @ w_c).reshape(3,)
+        Vb = (R_CB @ v_c).reshape(3,) + np.cross(Wb, P_CB.reshape(3,))
 
         vel_msg = Float32MultiArray()
         vel_msg.data = Vb.flatten().tolist() + Wb.flatten().tolist()
@@ -182,10 +180,10 @@ class IBVSRCController(Node):
         # -------- Compute PWM --------
         pwm = [1500] * 18
         
-        pwm[4] = self.vel_to_pwm(Vb[0,0], self.K_SURGE)
-        pwm[5] = self.vel_to_pwm(Vb[1,0], self.K_SWAY)
-        pwm[2] = self.vel_to_pwm(Vb[2,0], self.K_HEAVE, self.HEAVE_BIAS)
-        pwm[3] = self.vel_to_pwm(Wb[2,0], self.K_YAW)
+        pwm[4] = self.vel_to_pwm(Vb[0], self.K_SURGE)
+        pwm[5] = self.vel_to_pwm(Vb[1], self.K_SWAY)
+        pwm[2] = self.vel_to_pwm(Vb[2], self.K_HEAVE, self.HEAVE_BIAS)
+        pwm[3] = self.vel_to_pwm(Wb[2], self.K_YAW)
         
         # Publish debug PWM
         msg_pwm = Int16MultiArray()
