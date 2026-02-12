@@ -123,7 +123,6 @@ class IBVSRCController(Node):
         rows = []
         errs = []
         pixel_err = []
-        h, w = self.depth_img.shape
 
         for i, p in enumerate(msg.polygon.points):
             u, v, Z = p.x, p.y, p.z
@@ -179,12 +178,13 @@ class IBVSRCController(Node):
         self.pwm_pub.publish(msg_pwm)
 
         self.get_logger().info(
-            f"PWM CMD | surge={self.rc_cmd[4]} "
-            f"sway={self.rc_cmd[5]} "
-            f"heave={self.rc_cmd[2]} "
-            f"yaw={self.rc_cmd[3]}",
+            f"PWM CMD | surge={pwm[4]} "
+            f"sway={pwm[5]} "
+            f"heave={pwm[2]} "
+            f"yaw={pwm[3]}",
             throttle_duration_sec=0.5
         )
+
 
         err_msg = Float32MultiArray()
         err_msg.data = np.array(errs, dtype=np.float32).tolist()
