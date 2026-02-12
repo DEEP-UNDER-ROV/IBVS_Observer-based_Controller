@@ -46,9 +46,15 @@ class IBVSRCController(Node):
         )
 
         # ---------------- Publishers ----------------
-        self.rc_pub = self.create_publisher(
-            OverrideRCIn,
-            "/mavros/rc/override",
+        self.pwm_pub = self.create_publisher(
+            Int16MultiArray,
+            "/ibvs/pwm_debug",
+            10
+        )
+
+        self.vel_pub = self.create_publisher(
+            Float32MultiArray,
+            "/ibvs/velocity_debug",
             10
         )
 
@@ -80,7 +86,6 @@ class IBVSRCController(Node):
         )
 
         # ---------------- Timers ----------------
-        self.create_timer(0.05, self.publish_rc)   # 20 Hz RC override
         self.create_timer(0.1, self.tag_watchdog)
 
         self.get_logger().info("IBVS RC-Override Controller READY (EKF BYPASSED)")
@@ -170,11 +175,22 @@ class IBVSRCController(Node):
         Wb = R_CB @ w_c
         Vb = (R_CB @ v_c) + np.cross(Wb.flatten(), P_CB).reshape(3, 1)
 
-        # -------- Update RC buffer ONLY --------
-        self.rc_cmd[4] = self.vel_to_pwm(Vb[0,0], self.K_SURGE)
-        self.rc_cmd[5] = self.vel_to_pwm(Vb[1,0], self.K_SWAY)
-        self.rc_cmd[2] = self.vel_to_pwm(Vb[2,0], self.K_HEAVE, self.HEAVE_BIAS)
-        self.rc_cmd[3] = self.vel_to_pwm(Wb[2,0], self.K_YAW)
+        vel_msg = Float32MultiArray()
+        vel_msg.data = Vb.flatten().tolist() + Wb.flatten().tolist()
+        self.vel_pub.publish(vel_msg)
+
+        # -------- Compute PWM --------
+        pwm = [1500] * 18
+        
+        pwm[4] = self.vel_to_pwm(Vb[0,0], self.K_SURGE)
+        pwm[5] = self.vel_to_pwm(Vb[1,0], self.K_SWAY)
+        pwm[2] = self.vel_to_pwm(Vb[2,0], self.K_HEAVE, self.HEAVE_BIAS)
+        pwm[3] = self.vel_to_pwm(Wb[2,0], self.K_YAW)
+        
+        # Publish debug PWM
+        msg_pwm = Int16MultiArray()
+        msg_pwm.data = pwm
+        self.pwm_pub.publish(msg_pwm)
 
         self.get_logger().info(
             f"PWM CMD | surge={self.rc_cmd[4]} "
@@ -189,12 +205,6 @@ class IBVSRCController(Node):
         self.err_pub.publish(err_msg)
 
     # =========================================================
-    def publish_rc(self):
-        rc = OverrideRCIn()
-        rc.channels = self.rc_cmd
-        self.rc_pub.publish(rc)
-
-    # =========================================================
     def tag_watchdog(self):
         if self.last_tag_time is None:
             return
@@ -202,7 +212,9 @@ class IBVSRCController(Node):
         dt = (self.get_clock().now() - self.last_tag_time).nanoseconds * 1e-9
         if dt > self.TAG_TIMEOUT and not self.tag_lost:
             self.tag_lost = True
-            self.rc_cmd = [1500] * 18
+            neutral = Int16MultiArray()
+            neutral.data = [1500] * 18
+            self.pwm_pub.publish(neutral)
             self.get_logger().warn("AprilTag LOST → RC neutral")
 
 
