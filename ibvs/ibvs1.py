@@ -6,7 +6,7 @@ import numpy as np
 
 from geometry_msgs.msg import PolygonStamped
 from sensor_msgs.msg import Image
-from std_msgs.msg import Float32MultiArray
+from std_msgs.msg import Float32MultiArray, Int16MultiArray
 from mavros_msgs.msg import OverrideRCIn
 from cv_bridge import CvBridge
 
