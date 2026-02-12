@@ -12,18 +12,6 @@ from cv_bridge import CvBridge
 
 from ibvs.constants import *
 
-# ============================================================
-# Camera → Body transform (VERIFY FOR YOUR RIG)
-# ============================================================
-R_CB = np.array([
-    [0, 0, 1],
-    [1, 0, 0],
-    [0, 1, 0]
-], dtype=float)
-
-P_CB = np.array([P_CB_X, P_CB_Y, P_CB_Z])
-
-
 class IBVSRCController(Node):
     def __init__(self):
         super().__init__("ibvs_rc_controller")
@@ -126,7 +114,7 @@ class IBVSRCController(Node):
 
     # =========================================================
     def cb_corners(self, msg):
-        if self.depth_img is None or len(msg.polygon.points) != 4:
+        if len(msg.polygon.points) != 4:
             return
 
         self.last_tag_time = self.get_clock().now()
