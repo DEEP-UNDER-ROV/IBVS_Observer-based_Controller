@@ -1,0 +1,7 @@
+ros2 launch realsense2_camera rs_launch.py enable_spatial_filter:=true enable_temporal_filter:=true enable_hole_filling_filter:=true
+
+ros2 launch mavros apm.launch fcu_url:="serial:///dev/ttyACM0:921600" gcs_url:="udp://@192.168.4.1:14550"
+
+ros2 run ibvs detector
+
+ros2 run ibvs ibvs1
