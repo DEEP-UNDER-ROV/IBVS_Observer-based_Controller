@@ -1,0 +1,20 @@
+1. Cmd RealSense Driver
+ros2 launch realsense2_camera rs_launch.py enable_spatial_filter:=true enable_temporal_filter:=true enable_hole_filling_filter:=true
+
+2. Cmd MAVROS
+ros2 launch mavros apm.launch fcu_url:="serial:///dev/ttyACM0:921600" gcs_url:="udp://@192.168.4.1:14550"
+
+3. Cmd IBVS Controller
+ros2 run ibvs detector
+ros2 run ibvs ibvs1
+
+4. Cmd Reset FCU
+ros2 service call /mavros/cmd/command mavros_msgs/srv/CommandLong "{command: 246, param1: 1.0, param2: 0.0, param3: 0.0, param4: 0.0, param5: 0.0, param6: 0.0, param7: 0.0}"
+
+5. Cmd ROSBag Recording
+ros2 bag record \
+  /apriltag/corners \
+  /ibvs/error \
+  /ibvs/vel_stamped \
+  /mavros/rc/override \
+  /camera/color/image_raw/compressed
