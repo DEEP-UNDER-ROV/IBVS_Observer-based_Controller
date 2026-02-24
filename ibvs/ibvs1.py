@@ -19,38 +19,13 @@ class IBVSRCController(Node):
         self.bridge = CvBridge()
 
         # ---------------- Subscribers ----------------
-        self.sub_corners = self.create_subscription(
-            PolygonStamped,
-            "/apriltag/corners",
-            self.cb_corners,
-            qos_profile_sensor_data
-        )
-
-        self.sub_depth = self.create_subscription(
-            Image,
-            "/camera/depth/image_raw",
-            self.cb_depth,
-            qos_profile_sensor_data
-        )
+        self.sub_corners = self.create_subscription(PolygonStamped, "/apriltag/corners", self.cb_corners,qos_profile_sensor_data)
 
         # ---------------- Publishers ----------------
-        self.pwm_pub = self.create_publisher(
-            Int16MultiArray,
-            "/ibvs/pwm_debug",
-            10
-        )
-
-        self.vel_pub = self.create_publisher(
-            Float32MultiArray,
-            "/ibvs/velocity_debug",
-            10
-        )
-
-        self.err_pub = self.create_publisher(
-            Float32MultiArray,
-            "/ibvs/error",
-            10
-        )
+        self.rc_override_pub = self.create_publisher(OverrideRCIn, "/mavros/rc/override", 10)
+        self.pwm_pub = self.create_publisher(Int16MultiArray, "/ibvs/pwm_debug", 10)
+        self.vel_pub = self.create_publisher(Float32MultiArray, "/ibvs/velocity_debug", 10)
+        self.err_pub = self.create_publisher(Float32MultiArray, "/ibvs/error", 10)
 
         # ---------------- State ----------------
         self.depth_img = None
@@ -75,8 +50,7 @@ class IBVSRCController(Node):
 
         # ---------------- Timers ----------------
         self.create_timer(0.1, self.tag_watchdog)
-
-        self.get_logger().info("IBVS RC-Override Controller READY (EKF BYPASSED)")
+        self.get_logger().info("IBVS Control Active")
 
     # =========================================================
     def compute_desired_corners(self, Z_des, fx, fy, cx, cy, tag_size):
@@ -94,6 +68,10 @@ class IBVSRCController(Node):
             pts[i, 1] = fy * Y / Z + cy
         return pts
 
+    # =========================================================
+    def cb_color(self, msg):
+        frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+    
     # =========================================================
     def cb_depth(self, msg):
         self.depth_img = self.bridge.imgmsg_to_cv2(msg).astype(np.float32) * 0.001
@@ -136,7 +114,7 @@ class IBVSRCController(Node):
 
             x, y = (u - CX)/FX, (v - CY)/FY
             xd, yd = (self.desired_pts[i] - [CX, CY]) / [FX, FY]
-            errs.extend([x - xd, y - yd, Z - Z_DES])
+            errs.extend([x - xd, y - yd, 0.25*(Z - Z_DES)])
             # errs.extend([x - xd, y - yd, 0.25*(Z - Z_DES)])
 
         err_array = np.array(errs).reshape(4, 3)
@@ -148,8 +126,11 @@ class IBVSRCController(Node):
         b = L.T @ e
         Vc = -LAMBDA_P * np.linalg.solve(A, b)
 
-        if np.mean(np.abs(pixel_err)) < 10.0:
+        if np.mean(np.abs(pixel_err)) < 5.0:
             Vc[:] = 0.0
+
+        Vc[0:3] = np.clip(Vc[0:3], -MAX_LIN_VEL, MAX_LIN_VEL)
+        Vc[3:6] = np.clip(Vc[3:6], -MAX_ANG_VEL, MAX_ANG_VEL)
 
         v_c = Vc[0:3]
         w_c = Vc[3:6]
@@ -171,6 +152,8 @@ class IBVSRCController(Node):
         pwm[5] = self.vel_to_pwm(Vb[1], self.K_SWAY)
         pwm[2] = self.vel_to_pwm(Vb[2], self.K_HEAVE, self.HEAVE_BIAS)
         pwm[3] = self.vel_to_pwm(Wb[2], self.K_YAW)
+
+        self.current_pwm = pwm 
         
         # Publish debug PWM
         msg_pwm = Int16MultiArray()
@@ -185,31 +168,34 @@ class IBVSRCController(Node):
             throttle_duration_sec=0.5
         )
 
-
         err_msg = Float32MultiArray()
         err_msg.data = np.array(errs, dtype=np.float32).tolist()
         self.err_pub.publish(err_msg)
 
+    def publish_rc(self):
+        rc_msg = OverrideRCIn()
+        rc_msg.channels = self.current_pwm
+        self.rc_override_pub.publish(rc_msg)
+        
     # =========================================================
     def tag_watchdog(self):
+
         if self.last_tag_time is None:
             return
 
         dt = (self.get_clock().now() - self.last_tag_time).nanoseconds * 1e-9
+
         if dt > self.TAG_TIMEOUT and not self.tag_lost:
             self.tag_lost = True
-            neutral = Int16MultiArray()
-            neutral.data = [1500] * 18
-            self.pwm_pub.publish(neutral)
-            self.get_logger().warn("AprilTag LOST → RC neutral")
-
+            self.current_pwm = [1500] * 18
+            self.get_logger().warn("AprilTag LOST → Neutral RC")
 
 # =============================================================
 def main():
     rclpy.init()
-    rclpy.spin(IBVSRCController())
+    node = IBVSRCController()
+    rclpy.spin(node)
     rclpy.shutdown()
-
 
 if __name__ == "__main__":
     main()
