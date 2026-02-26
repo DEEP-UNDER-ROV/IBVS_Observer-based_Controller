@@ -30,32 +30,27 @@ class IBVS_Telemetry(Node):
         for i, (X, Y, Z) in enumerate(corners_3d):
             desired[i] = [FX * X / Z + CX, FY * Y / Z + CY]
         return desired
-
-    # def reorder_corners_ccw(self, pts):
-    #     pts = np.asarray(pts, dtype=np.float32)
-
-    #     # compute centroid
-    #     center = np.mean(pts, axis=0)
-
-    #     # compute angle of each point w.r.t centroid
-    #     angles = np.arctan2(pts[:,1] - center[1],
-    #                         pts[:,0] - center[0])
-
-    #     # sort by angle (CCW)
-    #     sort_idx = np.argsort(angles)
-    #     pts_sorted = pts[sort_idx]
-
-    #     # ensure starting point is top-left
-    #     s = pts_sorted.sum(axis=1)
-    #     top_left_idx = np.argmin(s)
-    #     pts_sorted = np.roll(pts_sorted, -top_left_idx, axis=0)
-
-    #     return pts_sorted
     
     def reorder_corners_ccw(self, pts):
+        pts = np.asarray(pts, dtype=np.float32)
+
+        # compute centroid
         center = np.mean(pts, axis=0)
-        angles = np.arctan2(pts[:, 1] - center[1], pts[:, 0] - center[0])
-        return pts[np.argsort(angles)]
+
+        # compute angle of each point w.r.t centroid
+        angles = np.arctan2(pts[:,1] - center[1],
+                            pts[:,0] - center[0])
+
+        # sort by angle (CCW)
+        sort_idx = np.argsort(angles)
+        pts_sorted = pts[sort_idx]
+
+        # ensure starting point is top-left
+        s = pts_sorted.sum(axis=1)
+        top_left_idx = np.argmin(s)
+        pts_sorted = np.roll(pts_sorted, -top_left_idx, axis=0)
+
+        return pts_sorted
 
     def __init__(self):
         super().__init__("IBVS_Telemetry")
@@ -77,6 +72,7 @@ class IBVS_Telemetry(Node):
         self.current_rc_out = None
         self.current_vel = None
         self.current_err = None
+        self.last_poly = None
 
         self.camera_matrix = np.array([[FX, 0, CX],
                                        [0, FY, CY],
@@ -136,10 +132,6 @@ class IBVS_Telemetry(Node):
     def cb_rc_out(self, msg): self.current_rc_out = msg
     def cb_vel(self, msg): self.current_vel = msg
     def cb_err(self, msg): self.current_err = msg
-
-    # @staticmethod
-    # def order_corners_apriltag(c):
-    #     return np.array([c[3], c[2], c[1], c[0]], dtype=np.float32)
 
     def sample_depth(self, depth, u, v):
         h, w = depth.shape
@@ -215,9 +207,11 @@ class IBVS_Telemetry(Node):
                 poly.header.frame_id = "camera_color_optical_frame"
                 valid = True
                 
-                for (u, v) in raw_pts:
-                    sample_u = u + (center_u - u) * 0.15
-                    sample_v = v + (center_v - v) * 0.15
+                for (u_raw, v_raw), (u, v) in zip(raw_pts, undistorted_pts):
+
+                    sample_u = u_raw + (center_u - u_raw) * 0.15
+                    sample_v = v_raw + (center_v - v_raw) * 0.15
+
                     Z = self.sample_depth(depth, sample_u, sample_v)
 
                     if Z is None:
@@ -229,23 +223,12 @@ class IBVS_Telemetry(Node):
                     poly.polygon.points.append(p)
                     
                 if valid:
+                    self.last_poly = poly
                     self.corners_pub.publish(poly)
 
-                # Z_center = self.sample_depth(depth, center_u, center_v)
-
-                # if Z_center is not None and Z_center > 0.1: # Ensure Z is valid and > 10cm
-                #     poly = PolygonStamped()
-                #     poly.header.stamp = stamp
-                #     poly.header.frame_id = "camera_color_optical_frame"
-
-                #     for (u, v) in raw_pts:
-                #         p = Point32()
-                #         p.x = float(u)
-                #         p.y = float(v)
-                #         p.z = float(Z_center) # Use the stable center depth
-                #         poly.polygon.points.append(p)
-                    
-                #     self.corners_pub.publish(poly)
+                elif self.last_poly is not None:
+                    self.last_poly.header.stamp = stamp
+                    self.corners_pub.publish(self.last_poly)
 
         # ---------------- Streaming ----------------
         stream = cv2.resize(color, (640, 480))
