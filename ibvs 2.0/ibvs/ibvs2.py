@@ -34,7 +34,7 @@ class IBVSRCController(Node):
         self.depth_img = None
         self.last_tag_time = None
         self.tag_lost = True
-        self.TAG_TIMEOUT = 0.5  # seconds
+        self.TAG_TIMEOUT = 2.5  # seconds
 
         # RC command buffer (IMPORTANT)
         self.rc_cmd = [1500] * 18
@@ -44,7 +44,7 @@ class IBVSRCController(Node):
         self.K_SWAY  = 1500
         self.K_HEAVE = 500
         self.K_YAW   = 200
-        self.HEAVE_BIAS = 100
+        self.HEAVE_BIAS = -100
 
         # ---------------- Desired image features ----------------
         self.desired_pts = self.compute_desired_corners(
@@ -72,13 +72,13 @@ class IBVSRCController(Node):
             pts[i, 1] = fy * Y / Z + cy
         return pts
 
-    # =========================================================
-    def cb_color(self, msg):
-        frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
+    # # =========================================================
+    # def cb_color(self, msg):
+    #     frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
     
-    # =========================================================
-    def cb_depth(self, msg):
-        self.depth_img = self.bridge.imgmsg_to_cv2(msg).astype(np.float32) * 0.001
+    # # =========================================================
+    # def cb_depth(self, msg):
+    #     self.depth_img = self.bridge.imgmsg_to_cv2(msg).astype(np.float32) * 0.001
 
     # =========================================================
     def interaction_matrix(self, u, v, Z):
@@ -124,13 +124,16 @@ class IBVSRCController(Node):
         L = np.vstack(L_stack)
         e = np.array(error_vector).reshape(-1, 1)
 
-        mu = 1
-        A = L.T @ L + mu**2 * np.eye(6)
-        b = L.T @ e
-        Vc = -LAMBDA_P * np.linalg.solve(A, b)
+        A = L.T @ W @ L + mu**2 * np.eye(6)
+        b = L.T @ W @ e
+        Vc = np.diag(LAMBDA_P) @ np.linalg.solve(A,b)
 
-        if np.mean(np.abs(pixel_err_list)) < 5.0:
+        pixel_err_magnitude = np.abs(pixel_err)
+        if np.max(pixel_err_magnitude) < 1.5:
             Vc[:] = 0.0
+
+        # if np.mean(np.abs(pixel_err_list)) < 5.0:
+        #     Vc[:] = 0.0
 
         Vc[0:3] = np.clip(Vc[0:3], -MAX_LIN_VEL, MAX_LIN_VEL)
         Vc[3:6] = np.clip(Vc[3:6], -MAX_ANG_VEL, MAX_ANG_VEL)
@@ -143,13 +146,14 @@ class IBVSRCController(Node):
         
         Wb = (R_CB @ w_c).reshape(3,)
         Vb = (R_CB @ v_c).reshape(3,) + np.cross(Wb, P_CB.reshape(3,))
+        Vb[2] = -Vb[2]
 
         vel_msg = TwistStamped()
         vel_msg.header.stamp = msg.header.stamp
         vel_msg.header.frame_id = "body"
         vel_msg.twist.linear.x = float(Vb[0])
         vel_msg.twist.linear.y = float(Vb[1])
-        vel_msg.twist.linear.z = float(Vb[2])
+        vel_msg.twist.linear.z = float(-Vb[2])
         vel_msg.twist.angular.x = float(Wb[0])
         vel_msg.twist.angular.y = float(Wb[1])
         vel_msg.twist.angular.z = float(Wb[2])
@@ -160,7 +164,7 @@ class IBVSRCController(Node):
         
         pwm[4] = self.vel_to_pwm(Vb[0], self.K_SURGE)
         pwm[5] = self.vel_to_pwm(Vb[1], self.K_SWAY)
-        pwm[2] = self.vel_to_pwm(-Vb[2], self.K_HEAVE, self.HEAVE_BIAS)
+        pwm[2] = self.vel_to_pwm(Vb[2], self.K_HEAVE, self.HEAVE_BIAS)
         pwm[3] = self.vel_to_pwm(Wb[2], self.K_YAW)
 
         self.current_pwm = pwm 
@@ -195,11 +199,13 @@ class IBVSRCController(Node):
 
         dt = (self.get_clock().now() - self.last_tag_time).nanoseconds * 1e-9
 
-        if dt > self.TAG_TIMEOUT and not self.tag_lost:
-            self.tag_lost = True
-            # self.current_pwm = [1500] * 18
-            self.get_logger().warn("AprilTag LOST → Neutral RC")
-        self.current_pwm = [1500] * 18
+        if dt > self.TAG_TIMEOUT:
+            if not self.tag_lost:
+                self.tag_lost = True
+                self.get_logger().warn("AprilTag LOST → Neutral RC")
+            
+            # Only reset to neutral IF the tag is actually lost
+            self.current_pwm = [1500] * 18
 
 # =============================================================
 def main():
