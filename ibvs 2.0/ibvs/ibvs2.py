@@ -72,14 +72,6 @@ class IBVSRCController(Node):
             pts[i, 1] = fy * Y / Z + cy
         return pts
 
-    # # =========================================================
-    # def cb_color(self, msg):
-    #     frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-    
-    # # =========================================================
-    # def cb_depth(self, msg):
-    #     self.depth_img = self.bridge.imgmsg_to_cv2(msg).astype(np.float32) * 0.001
-
     # =========================================================
     def interaction_matrix(self, u, v, Z):
         x = (u - CX) / FX
@@ -128,12 +120,11 @@ class IBVSRCController(Node):
         b = L.T @ W @ e
         Vc = - np.diag(LAMBDA_P) @ np.linalg.solve(A,b)
 
+        pixel_err = np.array(pixel_err_list)
         pixel_err_magnitude = np.abs(pixel_err)
         if np.max(pixel_err_magnitude) < 1.5:
             Vc[:] = 0.0
 
-        # if np.mean(np.abs(pixel_err_list)) < 5.0:
-        #     Vc[:] = 0.0
 
         Vc[0:3] = np.clip(Vc[0:3], -MAX_LIN_VEL, MAX_LIN_VEL)
         Vc[3:6] = np.clip(Vc[3:6], -MAX_ANG_VEL, MAX_ANG_VEL)
