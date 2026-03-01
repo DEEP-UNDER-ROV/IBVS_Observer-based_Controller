@@ -126,7 +126,7 @@ class IBVSRCController(Node):
 
         A = L.T @ W @ L + mu**2 * np.eye(6)
         b = L.T @ W @ e
-        Vc = np.diag(LAMBDA_P) @ np.linalg.solve(A,b)
+        Vc = - np.diag(LAMBDA_P) @ np.linalg.solve(A,b)
 
         pixel_err_magnitude = np.abs(pixel_err)
         if np.max(pixel_err_magnitude) < 1.5:
