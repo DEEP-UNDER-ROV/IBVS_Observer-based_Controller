@@ -122,7 +122,7 @@ class IBVS_Telemetry(Node):
         # )
         
         gst_pipeline = (
-            f"appsrc is-live=true block=true do-timestamp=true format=time !
+            f"appsrc is-live=true block=true do-timestamp=true format=time ! "
             f"queue ! "
             f"videoconvert ! "
             f"video/x-raw,width=640,height=480,format=I420 ! "
