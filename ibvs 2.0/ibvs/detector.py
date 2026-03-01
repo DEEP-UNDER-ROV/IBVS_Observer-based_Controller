@@ -120,6 +120,19 @@ class IBVS_Telemetry(Node):
             f"rtph264pay config-interval=1 pt=96 ! "
             f"udpsink host={QGC_IP} port={QGC_PORT} sync=false"
         )
+        
+        # gst_pipeline = (
+        #     f"appsrc is-live=true block=true do-timestamp=true format=time !
+        #     f"queue ! "
+        #     f"videoconvert ! "
+        #     f"video/x-raw,width=640,height=480,format=I420 ! "
+        #     f"x264enc tune=zerolatency "
+        #     f"bitrate=1000 speed-preset=ultrafast "
+        #     f"key-int-max=30 ! "
+        #     f"rtph264pay config-interval=-1 pt=96 ! "
+        #     f"udpsink host={QGC_IP} port={QGC_PORT} sync=false async=false"
+        # )
+        
         self.video_writer = cv2.VideoWriter(
             gst_pipeline, cv2.CAP_GSTREAMER, 0, 30, (640, 480), True
         )
