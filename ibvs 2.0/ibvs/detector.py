@@ -290,12 +290,12 @@ class IBVS_Telemetry(Node):
         
         if self.current_vel is not None:
             v = self.current_vel
-            cv2.putText(stream, f"Vx:{v.twist.linear.x:+.2f}", (20,45), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (0,128,255), 2)
-            cv2.putText(stream, f"Vy:{v.twist.linear.y:+.2f}", (20,65), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (0,128,255), 2)
-            cv2.putText(stream, f"Vz:{v.twist.linear.z:+.2f}", (20,85), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (0,128,255), 2)
-            cv2.putText(stream, f"Wx:{v.twist.angular.x:+.2f}", (20,105), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,128,255), 2)
-            cv2.putText(stream, f"Wy:{v.twist.angular.y:+.2f}", (20,125), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,128,255), 2)
-            cv2.putText(stream, f"Wz:{v.twist.angular.z:+.2f}", (20,145), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Vx:{v.twist.linear.x:+.2f}", (20,30), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Vy:{v.twist.linear.y:+.2f}", (20,50), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Vz:{v.twist.linear.z:+.2f}", (20,70), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Wx:{v.twist.angular.x:+.2f}", (20,90), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Wy:{v.twist.angular.y:+.2f}", (20,110), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Wz:{v.twist.angular.z:+.2f}", (20,130), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,128,255), 2)
 
         if self.current_rc is not None:
             rc = self.current_rc
@@ -310,7 +310,7 @@ class IBVS_Telemetry(Node):
             for i in range(8):
                 if i < len(self.current_rc_out.channels):
                     pwm = self.current_rc_out.channels[i]
-                    cv2.putText(stream, f"M{i+1}: {pwm}", (mx, my + (i * 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                    cv2.putText(stream, f"M{i+1}: {pwm}", (mx, my + (i * 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
                     
         # Push to QGC
         self.video_writer.write(stream)
