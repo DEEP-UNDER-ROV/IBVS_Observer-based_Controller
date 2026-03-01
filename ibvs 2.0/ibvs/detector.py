@@ -9,7 +9,7 @@ from cv_bridge import CvBridge
 from pupil_apriltags import Detector
 
 from std_msgs.msg import Float32MultiArray
-from geometry_msgs.msg import PolygonStamped, Point32, Twist, Point, Vector3Stamped
+from geometry_msgs.msg import PolygonStamped, Point32, Twist, Point, Vector3Stamped, TwistStamped
 from sensor_msgs.msg import Image, CompressedImage
 from mavros_msgs.msg import OverrideRCIn, RCOut
 
@@ -65,7 +65,7 @@ class IBVS_Telemetry(Node):
         # ---------------- Subscriptions ----------------
         self.create_subscription(OverrideRCIn, "/mavros/rc/override", self.cb_rc, 10)
         self.create_subscription(RCOut, "/mavros/rc/out", self.cb_rc_out, 10)
-        self.create_subscription(Twist, "/ibvs/vel", self.cb_vel, 10)
+        self.create_subscription(TwistStamped, "/ibvs/vel", self.cb_vel, 10)
         self.create_subscription(Float32MultiArray, "/ibvs/error", self.cb_err, 10)
 
         self.current_rc = None
@@ -270,22 +270,12 @@ class IBVS_Telemetry(Node):
         
         if self.current_vel is not None:
             v = self.current_vel
-            cv2.putText(stream, f"Vx:{v.linear.x:+.2f}", (20,45), 2,  0.5, (0,128,255), 2)
-            cv2.putText(stream, f"Vy:{v.linear.y:+.2f}", (20,65), 2,  0.5, (0,128,255), 2)
-            cv2.putText(stream, f"Vz:{v.linear.z:+.2f}", (20,85), 2,  0.5, (0,128,255), 2)
-            cv2.putText(stream, f"Wx:{v.angular.x:+.2f}", (20,105), 2, 0.5, (0,128,255), 2)
-            cv2.putText(stream, f"Wy:{v.angular.y:+.2f}", (20,125), 2, 0.5, (0,128,255), 2)
-            cv2.putText(stream, f"Wz:{v.angular.z:+.2f}", (20,145), 2, 0.5, (0,128,255), 2)
-
-        if self.current_tvec is not None:
-            z_val = self.current_tvec.vector.z
-            cv2.putText(stream, f"Range:{z_val:.3f} m", (20,25), 2,  0.5, (51,255,153), 2)
-            
-        if self.current_pos is not None:
-            p = self.current_pos
-            cv2.putText(stream, f"Offset X:{p.x:+.2f}m", (20,150), 2,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"Offset Y:{p.y:+.2f}m", (20,170), 2,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"Offset Z:{p.z:+.2f}m", (20,190), 2,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Vx:{v.msg.twist.linear.x:+.2f}", (20,45), 2,  0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Vy:{v.msg.twist.linear.y:+.2f}", (20,65), 2,  0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Vz:{v.msg.twist.linear.z:+.2f}", (20,85), 2,  0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Wx:{v.msg.twist.angular.x:+.2f}", (20,105), 2, 0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Wy:{v.msg.twist.angular.y:+.2f}", (20,125), 2, 0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Wz:{v.msg.twist.angular.z:+.2f}", (20,145), 2, 0.5, (0,128,255), 2)
 
         if self.current_rc is not None:
             rc = self.current_rc
