@@ -113,31 +113,35 @@ class IBVS_Telemetry(Node):
         self.PATCH = 3
 
         # ---------------- Video Stream ----------------
-        gst_pipeline = (
-            f"appsrc ! videoconvert ! "
-            f"video/x-raw,width=640,height=480,format=I420 ! "
-            f"x264enc tune=zerolatency bitrate=1000 speed-preset=ultrafast ! "
-            f"rtph264pay config-interval=1 pt=96 ! "
-            f"udpsink host={QGC_IP} port={QGC_PORT} sync=false"
-        )
-        
         # gst_pipeline = (
-        #     f"appsrc is-live=true block=true do-timestamp=true format=time !
-        #     f"queue ! "
-        #     f"videoconvert ! "
+        #     f"appsrc ! videoconvert ! "
         #     f"video/x-raw,width=640,height=480,format=I420 ! "
-        #     f"x264enc tune=zerolatency "
-        #     f"bitrate=1000 speed-preset=ultrafast "
-        #     f"key-int-max=30 ! "
-        #     f"rtph264pay config-interval=-1 pt=96 ! "
-        #     f"udpsink host={QGC_IP} port={QGC_PORT} sync=false async=false"
+        #     f"x264enc tune=zerolatency bitrate=1000 speed-preset=ultrafast ! "
+        #     f"rtph264pay config-interval=1 pt=96 ! "
+        #     f"udpsink host={QGC_IP} port={QGC_PORT} sync=false"
         # )
+        
+        gst_pipeline = (
+            f"appsrc is-live=true block=true do-timestamp=true format=time !
+            f"queue ! "
+            f"videoconvert ! "
+            f"video/x-raw,width=640,height=480,format=I420 ! "
+            f"x264enc tune=zerolatency "
+            f"bitrate=1000 speed-preset=ultrafast "
+            f"key-int-max=30 ! "
+            f"rtph264pay config-interval=-1 pt=96 ! "
+            f"udpsink host={QGC_IP} port={QGC_PORT} sync=false async=false"
+        )
         
         self.video_writer = cv2.VideoWriter(
             gst_pipeline, cv2.CAP_GSTREAMER, 0, 30, (640, 480), True
         )
 
         self.timer = self.create_timer(1.0 / 30.0, self.loop)
+        
+        if not self.video_writer.isOpened():
+            self.get_logger().error("GStreamer pipeline failed!")
+            
         self.get_logger().info("IBVS Telemetry running")
 
     # ---------------- Callbacks ----------------
@@ -156,7 +160,7 @@ class IBVS_Telemetry(Node):
         # Primary: exact pixel depth
         center_depth = depth[vi, ui]
 
-        if 0 < center_depth < 10000:   # valid range in mm
+        if 50 < center_depth < 10000:   # valid range in mm
             return float(center_depth) * 0.001  # mm → m
 
         # Fallback: small neighborhood mean
@@ -183,6 +187,9 @@ class IBVS_Telemetry(Node):
         if not color_frame or not depth_frame:
             return
 
+        depth_frame = self.spatial.process(depth_frame)
+        depth_frame = self.temporal.process(depth_frame)
+        depth_frame = self.hole_filling.process(depth_frame)
         color = np.asanyarray(color_frame.get_data())
         depth = np.asanyarray(depth_frame.get_data())
         stamp = self.get_clock().now().to_msg()
@@ -283,19 +290,19 @@ class IBVS_Telemetry(Node):
         
         if self.current_vel is not None:
             v = self.current_vel
-            cv2.putText(stream, f"Vx:{v.msg.twist.linear.x:+.2f}", (20,45), 2,  0.5, (0,128,255), 2)
-            cv2.putText(stream, f"Vy:{v.msg.twist.linear.y:+.2f}", (20,65), 2,  0.5, (0,128,255), 2)
-            cv2.putText(stream, f"Vz:{v.msg.twist.linear.z:+.2f}", (20,85), 2,  0.5, (0,128,255), 2)
-            cv2.putText(stream, f"Wx:{v.msg.twist.angular.x:+.2f}", (20,105), 2, 0.5, (0,128,255), 2)
-            cv2.putText(stream, f"Wy:{v.msg.twist.angular.y:+.2f}", (20,125), 2, 0.5, (0,128,255), 2)
-            cv2.putText(stream, f"Wz:{v.msg.twist.angular.z:+.2f}", (20,145), 2, 0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Vx:{v.twist.linear.x:+.2f}", (20,45), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Vy:{v.twist.linear.y:+.2f}", (20,65), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Vz:{v.twist.linear.z:+.2f}", (20,85), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Wx:{v.twist.angular.x:+.2f}", (20,105), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Wy:{v.twist.angular.y:+.2f}", (20,125), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Wz:{v.twist.angular.z:+.2f}", (20,145), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,128,255), 2)
 
         if self.current_rc is not None:
             rc = self.current_rc
-            cv2.putText(stream, f"Surge :{rc.channels[4]:+.2f}", (20,150), 2,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"Sway  :{rc.channels[5]:+.2f}", (20,170), 2,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"Heave :{rc.channels[2]:+.2f}", (20,190), 2,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"Yaw   :{rc.channels[3]:+.2f}", (20,210), 2,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Surge :{rc.channels[4]:+.2f}", (20,150), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Sway  :{rc.channels[5]:+.2f}", (20,170), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Heave :{rc.channels[2]:+.2f}", (20,190), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Yaw   :{rc.channels[3]:+.2f}", (20,210), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
 
         # --- Actual Motor PWMs ---
         if self.current_rc_out is not None:
@@ -303,7 +310,7 @@ class IBVS_Telemetry(Node):
             for i in range(8):
                 if i < len(self.current_rc_out.channels):
                     pwm = self.current_rc_out.channels[i]
-                    cv2.putText(stream, f"M{i+1}: {pwm}", (mx, my + (i * 20)), 2, 0.5, (0, 255, 0), 1)
+                    cv2.putText(stream, f"M{i+1}: {pwm}", (mx, my + (i * 20)), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
                     
         # Push to QGC
         self.video_writer.write(stream)
