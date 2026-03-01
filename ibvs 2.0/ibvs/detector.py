@@ -276,7 +276,7 @@ class IBVS_Telemetry(Node):
             if num_elements == 12:
                 for i in range(4):
                     ex, ey, ez = e[i*3:(i+1)*3]
-                    cv2.putText(stream, f"P{i+1}: ex={ex:+.2f}px  ey={ey:+.2f}px  ez={ez:+.2f} m",
+                    cv2.putText(stream, f"P{i+1}: ex={ex:+.2f}px  ey={ey:+.2f}px  ez={ez:+.2f}",
                         (x0, y0 + i * dy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
             elif num_elements == 3:
                 ex, ey, ez = e
@@ -290,12 +290,12 @@ class IBVS_Telemetry(Node):
         
         if self.current_vel is not None:
             v = self.current_vel
-            cv2.putText(stream, f"Vx:{v.twist.linear.x:+.2f}", (20,30), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (0,128,255), 2)
-            cv2.putText(stream, f"Vy:{v.twist.linear.y:+.2f}", (20,50), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (0,128,255), 2)
-            cv2.putText(stream, f"Vz:{v.twist.linear.z:+.2f}", (20,70), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (0,128,255), 2)
-            cv2.putText(stream, f"Wx:{v.twist.angular.x:+.2f}", (20,90), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,128,255), 2)
-            cv2.putText(stream, f"Wy:{v.twist.angular.y:+.2f}", (20,110), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,128,255), 2)
-            cv2.putText(stream, f"Wz:{v.twist.angular.z:+.2f}", (20,130), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Vx:{v.twist.linear.x:+.4f}", (20,30), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Vy:{v.twist.linear.y:+.4f}", (20,50), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Vz:{v.twist.linear.z:+.4f}", (20,70), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Wx:{v.twist.angular.x:+.4f}", (20,90), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Wy:{v.twist.angular.y:+.4f}", (20,110), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,128,255), 2)
+            cv2.putText(stream, f"Wz:{v.twist.angular.z:+.4f}", (20,130), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,128,255), 2)
 
         if self.current_rc is not None:
             rc = self.current_rc
