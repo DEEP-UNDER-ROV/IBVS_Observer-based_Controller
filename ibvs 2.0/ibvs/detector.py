@@ -111,15 +111,6 @@ class IBVS_Telemetry(Node):
         self.last_img_pub = 0.0
 
         self.PATCH = PATCH
-
-        # ---------------- Video Stream ----------------
-        # gst_pipeline = (
-        #     f"appsrc ! videoconvert ! "
-        #     f"video/x-raw,width=640,height=480,format=I420 ! "
-        #     f"x264enc tune=zerolatency bitrate=1000 speed-preset=ultrafast ! "
-        #     f"rtph264pay config-interval=1 pt=96 ! "
-        #     f"udpsink host={QGC_IP} port={QGC_PORT} sync=false"
-        # )
         
         gst_pipeline = (
             f"appsrc is-live=true block=true do-timestamp=true format=time ! "
