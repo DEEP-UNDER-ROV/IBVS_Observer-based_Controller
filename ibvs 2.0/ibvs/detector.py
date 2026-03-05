@@ -242,6 +242,14 @@ class IBVS_Telemetry(Node):
                     p.x, p.y, p.z = float(u), float(v), float(Z)
                     poly.polygon.points.append(p)
                     
+                    self.get_logger().info(
+                        f"Corner {i} | "
+                        f"raw(u,v)=({u_raw:.2f},{v_raw:.2f}) | "
+                        f"undist(u,v)=({u:.2f},{v:.2f}) | "
+                        f"Z={Z:.3f} m",
+                        throttle_duration_sec=0.5
+                    )
+                    
                 if valid:
                     self.last_poly = poly
                     self.corners_pub.publish(poly)
@@ -249,7 +257,7 @@ class IBVS_Telemetry(Node):
                 elif self.last_poly is not None:
                     self.last_poly.header.stamp = stamp
                     self.corners_pub.publish(self.last_poly)
-
+        
         # ---------------- Streaming ----------------
         stream = cv2.resize(color, (640, 480))
         sx, sy = 640 / 1280, 480 / 720
