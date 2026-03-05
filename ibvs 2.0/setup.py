@@ -26,7 +26,7 @@ setup(
         'console_scripts': [
             'detector = ibvs.detector:main',
             'ibvs1 = ibvs.ibvs1:main',
-            'ibvs2 = ibvs.ibvs2:main',
+            'heave_trim = ibvs.heave_trim:main',
         ],
     },
 )
