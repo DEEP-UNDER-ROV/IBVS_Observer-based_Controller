@@ -148,22 +148,12 @@ class IBVSRCController(Node):
         self.vel_pub.publish(vel_msg)
 
         self.get_logger().info(
-            f"Vc 1 = {Vc[0]} |"
-            f"Vc 2 = {Vc[1]} |"
-            f"Vc 3 = {Vc[2]} |"
-            f"Wc 1 = {Vc[3]} |"
-            f"Wc 2 = {Vc[4]} |"
-            f"Wc 3 = {Vc[5]} |",
+            f"Vc: [{Vc[0]:.2f}, {Vc[1]:.2f}, {Vc[2]:.2f}, {Vc[3]:.2f}, {Vc[4]:.2f}, {Vc[5]:.2f}]",
             throttle_duration_sec=0.5
         )
 
         self.get_logger().info(
-            f"Vb 1 = {Vb[0]} |"
-            f"Vb 2 = {Vb[1]} |"
-            f"Vb 3 = {Vb[2]} |"
-            f"Wb 1 = {Wb[0]} |"
-            f"Wb 2 = {Wb[1]} |"
-            f"Wb 3 = {Wb[2]} |",
+            f"Vb: [{Vb[0]:.2f}, {Vb[1]:.2f}, {Vb[2]:.2f}, {Wb[0]:.2f}, {Wb[1]:.2f}, {Wb[2]:.2f}]",
             throttle_duration_sec=0.5
         )
 
@@ -183,9 +173,9 @@ class IBVSRCController(Node):
         self.pwm_pub.publish(msg_pwm)
 
         self.get_logger().info(
-            f"Surge(RC5) = {pwm[4]} |"
-            f"Sway(RC6) = {pwm[5]} |"
-            f"Heave(RC3) = {pwm[2]} |"
+            f"Surge(RC5) = {pwm[4]} | "
+            f"Sway(RC6) = {pwm[5]} | "
+            f"Heave(RC3) = {pwm[2]} | "
             f"Yaw(RC4) = {pwm[3]}",
             throttle_duration_sec=0.5
         )
