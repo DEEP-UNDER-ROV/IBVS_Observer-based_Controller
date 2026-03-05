@@ -77,9 +77,9 @@ class IBVSRCController(Node):
         x = (u - CX) / FX
         y = (v - CY) / FY
         return np.array([
-            [-1/Z,  0,    x/Z,      x*y,     -(1 + x*x),  y],
-            [0,    -1/Z,  y/Z,    1 + y*y,      -x*y,    -x],
-            [0,     0, -1/Z_DES, -y*Z/Z_DES,  x*Z/Z_DES,  0]
+            [-1/Z,    0,    x/Z,    x*y,   -(1 + x*x),  y],
+            [0,     -1/Z,   y/Z,  1 + y*y,    -x*y,    -x],
+            [0,       0,    -1,     -y*Z,      x*Z,     0]
         ])
 
     # =========================================================
@@ -109,8 +109,7 @@ class IBVSRCController(Node):
 
             x, y = (u - CX)/FX, (v - CY)/FY
             xd, yd = (self.desired_pts[i] - [CX, CY]) / [FX, FY]
-            z_norm = (Z - Z_DES) / Z_DES
-            errs.extend([x - xd, y - yd, z_norm])
+            errs.extend([x - xd, y - yd, Z - Z_DES])
             # errs.extend([x - xd, y - yd, 0.25*(Z - Z_DES)])
 
         L = np.vstack(rows)
@@ -121,7 +120,7 @@ class IBVSRCController(Node):
         Vc = - np.diag(LAMBDA_P) @ np.linalg.solve(A,b)
 
         pixel_err_magnitude = np.abs(pixel_err)
-        if np.max(pixel_err_magnitude) < 1.5:
+        if np.max(pixel_err_magnitude) < 0.5:
             Vc[:] = 0.0
 
         Vc[0:3] = np.clip(Vc[0:3], -MAX_LIN_VEL, MAX_LIN_VEL)
@@ -147,6 +146,26 @@ class IBVSRCController(Node):
         vel_msg.twist.angular.y = float(Wb[1])
         vel_msg.twist.angular.z = float(Wb[2])
         self.vel_pub.publish(vel_msg)
+
+        self.get_logger().info(
+            f"Vc 1 = {Vc[0]} |"
+            f"Vc 2 = {Vc[1]} |"
+            f"Vc 3 = {Vc[2]} |"
+            f"Wc 1 = {Vc[3]} |"
+            f"Wc 2 = {Vc[4]} |"
+            f"Wc 3 = {Vc[5]} |",
+            throttle_duration_sec=0.5
+        )
+
+        self.get_logger().info(
+            f"Vb 1 = {Vb[0]} |"
+            f"Vb 2 = {Vb[1]} |"
+            f"Vb 3 = {Vb[2]} |"
+            f"Wb 1 = {Wb[0]} |"
+            f"Wb 2 = {Wb[1]} |"
+            f"Wb 3 = {Wb[2]} |",
+            throttle_duration_sec=0.5
+        )
 
         # -------- Compute PWM --------
         pwm = [1500] * 18
