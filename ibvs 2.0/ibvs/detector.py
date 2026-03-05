@@ -110,7 +110,7 @@ class IBVS_Telemetry(Node):
         self.img_pub_period = 1.0 / 20.0 # image @ 20 Hz
         self.last_img_pub = 0.0
 
-        self.PATCH = 3
+        self.PATCH = PATCH
 
         # ---------------- Video Stream ----------------
         # gst_pipeline = (
@@ -173,7 +173,7 @@ class IBVS_Telemetry(Node):
         if valid.size < 3:
             return None
 
-        return float(np.mean(valid)) * 0.001
+        return float(np.median(valid)) * 0.001
 
     # ---------------- Main loop ----------------
     def loop(self):
@@ -187,8 +187,8 @@ class IBVS_Telemetry(Node):
         if not color_frame or not depth_frame:
             return
 
-        depth_frame = self.spatial.process(depth_frame)
         depth_frame = self.temporal.process(depth_frame)
+        depth_frame = self.spatial.process(depth_frame)
         depth_frame = self.hole_filling.process(depth_frame)
         color = np.asanyarray(color_frame.get_data())
         depth = np.asanyarray(depth_frame.get_data())
