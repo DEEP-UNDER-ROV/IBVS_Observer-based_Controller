@@ -3,7 +3,6 @@ import rclpy
 from rclpy.node import Node
 import cv2
 import numpy as np
-# RealSense removed - using external image topic
 from cv_bridge import CvBridge
 
 from std_msgs.msg import Float32MultiArray
@@ -64,7 +63,7 @@ class IBVS_Telemetry(Node):
         self.create_subscription(RCOut, "/mavros/rc/out", self.cb_rc_out, 10)
         self.create_subscription(TwistStamped, "/ibvs/vel", self.cb_vel, 10)
         self.create_subscription(Float32MultiArray, "/ibvs/error", self.cb_err, 10)
-        # subscribe to corners and corrected image for visualization
+        
         self.create_subscription(PolygonStamped, "/apriltag/corners", self.cb_corners, 10)
         self.create_subscription(Image, "/corrected/left/image_raw/image_topics", self.cb_image, 10)
 
@@ -115,10 +114,6 @@ class IBVS_Telemetry(Node):
     def cb_vel(self, msg): self.current_vel = msg
     def cb_err(self, msg): self.current_err = msg
 
-    def sample_depth(self, depth, u, v):
-        # Depth sampling not available when using external image topic
-        return None
-
     # ---------------- Callbacks for subscribed image + corners ----------------
     def cb_corners(self, msg):
         # store latest corners polygon (assumed to contain Point32 entries with pixel u,v in x,y)
@@ -140,8 +135,9 @@ class IBVS_Telemetry(Node):
             pts = self.last_poly.polygon.points
             raw_pts = np.array([[p.x, p.y] for p in pts], dtype=float)
             pts_cv = raw_pts.reshape(-1, 1, 2)
-            und = cv2.undistortPoints(pts_cv, self.camera_matrix, self.dist_coeffs, P=self.camera_matrix)
-            undistorted_pts = und.reshape(-1, 2)
+            # und = cv2.undistortPoints(pts_cv, self.camera_matrix, self.dist_coeffs, P=self.camera_matrix)
+            # undistorted_pts = und.reshape(-1, 2)
+            undistorted_pts = raw_pts
 
         # prepare stream for overlay
         h, w = color.shape[:2]

@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'detector = ibvs.detector:main',
+            'visualise = ibvs.visualisation:main',
             'ibvs1 = ibvs.ibvs1:main',
             'heave_trim = ibvs.heave_trim:main',
         ],
