@@ -52,7 +52,7 @@ class IBVSRCController(Node):
         self.get_logger().info("IBVS Control Active")
 
     # =========================================================
-    def desired_corners_from_Z(self, Z_des):
+    def compute_desired_corners(self, Z_des):
         half = TAG_SIZE / 2.0
         corners_3d = np.array([
             [-half, -half, Z_des],
@@ -97,7 +97,7 @@ class IBVSRCController(Node):
             if Z <= 0:
                 return
                 
-            ud, vd = self.desired_pts[i]
+            ud, vd = self.compute_desired_corners[i]
             pixel_err.extend([u - ud, v - vd])
             rows.append(self.interaction_matrix(u, v, Z))
 
