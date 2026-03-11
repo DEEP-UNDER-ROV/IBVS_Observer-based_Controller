@@ -95,16 +95,16 @@ class IBVS_Telemetry(Node):
             f"appsrc is-live=true block=true do-timestamp=true format=time ! "
             f"queue ! "
             f"videoconvert ! "
-            f"video/x-raw,width=640,height=480,format=I420 ! "
+            f"video/x-raw,width=848,height=480,format=I420 ! "
             f"x264enc tune=zerolatency "
-            f"bitrate=1000 speed-preset=ultrafast "
+            f"bitrate=2000 speed-preset=ultrafast "
             f"key-int-max=30 ! "
             f"rtph264pay config-interval=-1 pt=96 ! "
             f"udpsink host={QGC_IP} port={QGC_PORT} sync=false async=false"
         )
         
         self.video_writer = cv2.VideoWriter(
-            gst_pipeline, cv2.CAP_GSTREAMER, 0, 30, (640, 480), True
+            gst_pipeline, cv2.CAP_GSTREAMER, 0, 30, (848, 480), True
         )
 
         if not self.video_writer.isOpened():
@@ -145,8 +145,8 @@ class IBVS_Telemetry(Node):
 
         # prepare stream for overlay
         h, w = color.shape[:2]
-        stream = cv2.resize(color, (640, 480))
-        sx, sy = 640.0 / w, 480.0 / h
+        stream = color.copy()
+        sx, sy = 1.0, 1.0
 
         desired_draw = (self.desired * np.array([sx, sy])).astype(np.int32).reshape(-1, 1, 2)
         cv2.polylines(stream, [desired_draw], True, (0, 0, 255), 2)
