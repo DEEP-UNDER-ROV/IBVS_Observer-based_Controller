@@ -108,9 +108,12 @@ class IBVSRCController(Node):
             rows.append(self.interaction_matrix(u, v, Z))
 
             x, y = (u - CX)/FX, (v - CY)/FY
-            xd, yd = (self.desired_pts[i] - [CX, CY]) / [FX, FY]
+            xd = (self.desired_pts[i,0] - CX) / FX
+            yd = (self.desired_pts[i,1] - CY) / FY
             z_norm = (Z - Z_DES) / Z_DES
             errs.extend([x - xd, y - yd, z_norm])
+            print("Actual:", p.x, p.y)
+            print("Desired:", self.desired_pts[i])
             # errs.extend([x - xd, y - yd, 0.25*(Z - Z_DES)])
 
         L = np.vstack(rows)
@@ -147,18 +150,22 @@ class IBVSRCController(Node):
         vel_msg.twist.angular.y = float(Wb[1])
         vel_msg.twist.angular.z = float(Wb[2])
         self.vel_pub.publish(vel_msg)
+
+        self.get_logger().info(
+            f"Cam_PosX = {Vc[0]} |"
+            f"Cam_PosY = {Vc[1]} |"
+            f"Cam_PosZ = {Vc[2]} |"
+            f"Cam_RotX = {Vc[3]} |"
+            f"Cam_RotY = {Vc[4]} |"
+            f"Cam_RotZ = {Vc[5]} |",
+            throttle_duration_sec=0.5
+        )
         
         self.get_logger().info(
             f"Surge = {Vb[0]} |"
             f"Sway = {Vb[1]} |"
             f"Heave = {Vb[2]} |"
-            f"Yaw Body = {Wb[2]}"
-            f"C1 = {Vc[0]} |"
-            f"C2 = {Vc[1]} |"
-            f"C3 = {Vc[2]} |"
-            f"C4 = {Vc[3]} |"
-            f"C5 = {Vc[4]} |"
-            f"c6 = {Vc[5]} |",
+            f"Yaw Body = {Wb[2]}",
             throttle_duration_sec=0.5
         )
 
