@@ -1,20 +1,22 @@
 1. Cmd RealSense Driver
-ros2 launch realsense2_camera rs_launch.py enable_spatial_filter:=true enable_temporal_filter:=true enable_hole_filling_filter:=true
+ros2 launch rov_vision uw_rs_apriltag_triangulation.launch.xml
+ros2 param set /camera/camera depth_module.emitter_enabled 0
 
 2. Cmd MAVROS
 ros2 launch mavros apm.launch fcu_url:="serial:///dev/ttyACM0:921600" gcs_url:="udp://@192.168.4.1:14550"
+ros2 launch mavros apm.launch fcu_url:=“serial:///dev/ttyACM0:921600” gcs_url:="udp://@192.168.2.1:14550"
 
 3. Cmd Heave Trimmer
 ros2 run ibvs heave_trim
-ros2 param set /heave_trim_node bias -80
+ros2 param set /heave_trim_node bias -133
 
 4. Cmd IBVS Controller
-ros2 run ibvs detector
+ros2 run ibvs visualise
 ros2 run ibvs ibvs1
+ros2 run ibvs ibvs2
 
 5. Cmd Set ID Mavros
-ros2 run mavros mavparam set SYSID_MYGCS 1
-ros2 run mavros mavparam set SYSID_MYGCS 255
+
 
 6. Cmd Reset FCU
 ros2 service call /mavros/cmd/command mavros_msgs/srv/CommandLong "{command: 246, param1: 1.0, param2: 0.0, param3: 0.0, param4: 0.0, param5: 0.0, param6: 0.0, param7: 0.0}"
@@ -22,11 +24,15 @@ ros2 service call /mavros/cmd/command mavros_msgs/srv/CommandLong "{command: 246
 7. Cmd ROSBag Recording
 ros2 bag record --include-hidden-topics \
   /apriltag/corners \
+  /detection1 \
+  /mavros/imu/data \
+  /mavros/imu/data_raw \
   /ibvs/error \
-  /ibvs/vel \
+  /ibvs/vel_cam \
+  /ibvs/vel_body \
   /ibvs/pwm_debug \
   /mavros/rc/override \
-  /camera/color/image_raw/compressed
+  /camera/overlay/image_raw/compressed
 
 8. Watch RPi Temp
 watch -n1 vcgencmd meassure_temp
