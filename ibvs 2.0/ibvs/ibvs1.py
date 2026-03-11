@@ -1,4 +1,4 @@
-# IBVS Full LS 3 Stacked
+#IBVS Z_err Normalized
 
 #!/usr/bin/env python3
 import rclpy
