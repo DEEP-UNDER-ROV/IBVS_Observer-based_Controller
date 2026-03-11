@@ -108,8 +108,13 @@ class IBVSRCController(Node):
             rows.append(self.interaction_matrix(u, v, Z))
 
             x, y = (u - CX)/FX, (v - CY)/FY
-            xd = (self.desired_pts[i,0] - CX) / FX
-            yd = (self.desired_pts[i,1] - CY) / FY
+            
+            ud = self.desired_pts[i,0]
+            vd = self.desired_pts[i,1]
+            
+            xd = (ud - CX) / FX
+            yd = (vd - CY) / FY
+            
             z_norm = (Z - Z_DES) / Z_DES
             errs.extend([x - xd, y - yd, z_norm])
             print("Actual:", p.x, p.y)
