@@ -84,9 +84,7 @@ class IBVSRCController(Node):
         return desired
 
     # =========================================================
-    def interaction_matrix(self, u, v, Z):
-        x = (u - CX) / FX
-        y = (v - CY) / FY
+    def interaction_matrix(self, x, y, Z):
         return np.array([
             [-1/Z,  0,    x/Z,      x*y,     -(1 + x*x),  y],
             [0,    -1/Z,  y/Z,    1 + y*y,      -x*y,    -x],
@@ -113,21 +111,24 @@ class IBVSRCController(Node):
             u, v, Z = p.x, p.y, p.z
             if Z <= 0:
                 return
-                
-            ud, vd = self.desired_pts[i]
-            pixel_err.extend([x - xd, y - yd])
-            rows.append(self.interaction_matrix(u, v, Z))
 
+            # Normalize once
             x = (u - CX) / FX
             y = (v - CY) / FY
-
-            # xd = (ud - CX) / FX
-            # yd = (vd - CY) / FY
-
+            
+            # Desired normalized
             xd, yd = self.desired_pts[i]
             
+            # Build interaction matrix using normalized coords
+            rows.append(self.interaction_matrix(x, y, Z))
+            
+            # Error vector
             z_norm = (Z - Z_DES) / Z_DES
             errs.extend([x - xd, y - yd, z_norm])
+            
+            # Stop condition error
+            pixel_err.extend([x - xd, y - yd])
+            
             print("Actual norm:", x, y)
             print("Desired norm:", xd, yd)
             print("Error:", x-xd, y-yd)
