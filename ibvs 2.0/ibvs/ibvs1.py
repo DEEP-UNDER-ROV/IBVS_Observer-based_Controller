@@ -115,7 +115,7 @@ class IBVSRCController(Node):
                 return
                 
             ud, vd = self.desired_pts[i]
-            pixel_err.extend([u - ud, v - vd])
+            pixel_err.extend([x - xd, y - yd])
             rows.append(self.interaction_matrix(u, v, Z))
 
             x = (u - CX) / FX
@@ -140,7 +140,7 @@ class IBVSRCController(Node):
         Vc = - np.diag(LAMBDA_P) @ np.linalg.solve(A,b)
 
         pixel_err_magnitude = np.abs(pixel_err)
-        if np.max(pixel_err_magnitude) < 1.5:
+        if np.max(pixel_err_magnitude) < 0.002:
             Vc[:] = 0.0
 
         Vc[0:3] = np.clip(Vc[0:3], -MAX_LIN_VEL, MAX_LIN_VEL)
