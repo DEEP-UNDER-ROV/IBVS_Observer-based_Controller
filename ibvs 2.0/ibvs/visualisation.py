@@ -10,6 +10,7 @@ from std_msgs.msg import Float32MultiArray
 from geometry_msgs.msg import PolygonStamped, Point32, Twist, Point, Vector3Stamped, TwistStamped
 from sensor_msgs.msg import Image, CompressedImage
 from mavros_msgs.msg import OverrideRCIn, RCOut
+from apriltag_msgs.msg import AprilTagDetectionArray
 
 from ibvs.constants import *
 
@@ -60,6 +61,7 @@ class IBVS_Telemetry(Node):
         self.comp_pub    = self.create_publisher(CompressedImage, "/camera/overlay/image_raw/compressed", 10)
 
         # ---------------- Subscriptions ----------------
+        self.create_subscription(AprilTagDetectionArray, "/detection1", self.cb_detection, 10)
         self.create_subscription(OverrideRCIn, "/mavros/rc/override", self.cb_rc, 10)
         self.create_subscription(RCOut, "/mavros/rc/out", self.cb_rc_out, 10)
         self.create_subscription(TwistStamped, "/ibvs/vel", self.cb_vel, 10)
@@ -71,6 +73,7 @@ class IBVS_Telemetry(Node):
         self.create_subscription(PolygonStamped,"/apriltag/corners",self.cb_corners,qos)
         self.create_subscription(Image, "/corrected/left/image_raw", self.cb_image, 10)
 
+        self.detected_corners = None
         self.current_rc = None
         self.current_rc_out = None
         self.current_vel = None
@@ -118,6 +121,20 @@ class IBVS_Telemetry(Node):
     def cb_vel(self, msg): self.current_vel = msg
     def cb_err(self, msg): self.current_err = msg
 
+    def cb_detection(self, msg):
+        if len(msg.detections) == 0:
+            self.detected_corners = None
+            return
+    
+        det = msg.detections[0]
+    
+        pts = []
+        for c in det.corners:
+            pts.append([c.x, c.y])
+    
+        pts = np.array(pts, dtype=np.float32)
+        self.detected_corners = self.reorder_corners_ccw(pts)
+    
     # ---------------- Callbacks for subscribed image + corners ----------------
     def cb_corners(self, msg):
         # store latest corners polygon (assumed to contain Point32 entries with pixel u,v in x,y)
@@ -150,6 +167,10 @@ class IBVS_Telemetry(Node):
 
         desired_draw = (self.desired * np.array([sx, sy])).astype(np.int32).reshape(-1, 1, 2)
         cv2.polylines(stream, [desired_draw], True, (0, 0, 255), 2)
+
+        if self.detected_corners is not None:
+            pts = self.detected_corners.reshape((-1,1,2)).astype(np.int32)
+            cv2.polylines(stream,[pts],True,(0,255,0),2)
 
         if undistorted_pts is not None:
             pts_u = np.asarray(undistorted_pts).reshape(-1, 2)
