@@ -53,21 +53,6 @@ class IBVSRCController(Node):
 
         self.desired_pts = self.compute_desired_corners(Z_DES)
 
-    # =========================================================
-    # def compute_desired_corners(self, Z_des):
-    #     half = TAG_SIZE / 2.0
-    #     corners_3d = np.array([
-    #         [-half, -half, Z_des],
-    #         [ half, -half, Z_des],
-    #         [ half,  half, Z_des],
-    #         [-half,  half, Z_des],
-    #     ])
-
-    #     desired = np.zeros((4, 2), dtype=np.float32)
-    #     for i, (X, Y, Z) in enumerate(corners_3d):
-    #         desired[i] = [FX * X / Z + CX, FY * Y / Z + CY]
-    #     return desired
-
     def compute_desired_corners(self, Z_des):
 
         half = TAG_SIZE / 2.0
@@ -125,10 +110,6 @@ class IBVSRCController(Node):
             # Stop condition error
             pixel_err.extend([x - xd, y - yd])
             
-            print("Actual norm:", x, y)
-            print("Desired norm:", xd, yd)
-            print("Error:", x-xd, y-yd)
-
         L = np.vstack(rows)
         e = np.array(errs).reshape(-1, 1)
 
