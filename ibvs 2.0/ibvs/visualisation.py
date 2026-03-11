@@ -8,7 +8,7 @@ from rclpy.qos import QoSProfile, ReliabilityPolicy
 
 from std_msgs.msg import Float32MultiArray
 from geometry_msgs.msg import PolygonStamped, Point32, Twist, Point, Vector3Stamped, TwistStamped
-from sensor_msgs.msg import Image, CompressedImage
+from sensor_msgs.msg import Image, CompressedImage, CameraInfo
 from mavros_msgs.msg import OverrideRCIn, RCOut
 from apriltag_msgs.msg import AprilTagDetectionArray
 
@@ -27,7 +27,10 @@ class IBVS_Telemetry(Node):
 
         desired = np.zeros((4, 2), dtype=np.float32)
         for i, (X, Y, Z) in enumerate(corners_3d):
-            desired[i] = [FX * X / Z + CX, FY * Y / Z + CY]
+            desired[i] = [
+                self.FX * X / Z + self.CX,
+                self.FY * Y / Z + self.CY
+            ]
         return desired
     
     def reorder_corners_ccw(self, pts):
@@ -62,6 +65,7 @@ class IBVS_Telemetry(Node):
 
         # ---------------- Subscriptions ----------------
         self.create_subscription(AprilTagDetectionArray, "/detection1", self.cb_detection, 10)
+        self.create_subscription(CameraInfo,"/corrected/left/camera_info",self.cb_camera_info,10)
         self.create_subscription(OverrideRCIn, "/mavros/rc/override", self.cb_rc, 10)
         self.create_subscription(RCOut, "/mavros/rc/out", self.cb_rc_out, 10)
         self.create_subscription(TwistStamped, "/ibvs/vel", self.cb_vel, 10)
@@ -80,12 +84,18 @@ class IBVS_Telemetry(Node):
         self.current_err = None
         self.last_poly = None
 
-        self.camera_matrix = np.array([[FX, 0, CX],
-                                       [0, FY, CY],
-                                       [0,  0,  1]], dtype=np.float32)
-        self.dist_coeffs = np.array(DIST_COEFFS, dtype=np.float32)
+        self.FX = FX
+        self.FY = FY
+        self.CX = CX
+        self.CY = CY
         self.desired = self.desired_corners_from_Z(Z_DES)
 
+        self.camera_matrix = np.array([[self.FX, 0, self.CX],
+                                       [0, self.FY, self.CY],
+                                       [0,  0,  1]], dtype=np.float32)
+        self.dist_coeffs = np.array(DIST_COEFFS, dtype=np.float32)
+
+        
         self.bridge = CvBridge()
 
         # publishing rate control (for overlay publish)
@@ -122,18 +132,33 @@ class IBVS_Telemetry(Node):
     def cb_err(self, msg): self.current_err = msg
 
     def cb_detection(self, msg):
-        if len(msg.detections) == 0:
+        if not msg.detections:
             self.detected_corners = None
             return
     
         det = msg.detections[0]
     
-        pts = []
-        for c in det.corners:
-            pts.append([c.x, c.y])
-    
-        pts = np.array(pts, dtype=np.float32)
+        pts = np.array([[c.x, c.y] for c in det.corners], dtype=np.float32)
         self.detected_corners = self.reorder_corners_ccw(pts)
+
+    def cb_camera_info(self, msg):
+        self.FX = msg.k[0]
+        self.FY = msg.k[4]
+        self.CX = msg.k[2]
+        self.CY = msg.k[5]
+    
+        self.get_logger().info(
+            f"Camera intrinsics: fx={self.FX:.2f}, fy={self.FY:.2f}, "
+            f"cx={self.CX:.2f}, cy={self.CY:.2f}"
+        )
+    
+        # hitung ulang desired corners
+        self.desired = self.desired_corners_from_Z(Z_DES)
+        self.camera_matrix = np.array([
+            [self.FX, 0, self.CX],
+            [0, self.FY, self.CY],
+            [0, 0, 1]
+        ], dtype=np.float32)
     
     # ---------------- Callbacks for subscribed image + corners ----------------
     def cb_corners(self, msg):
@@ -172,10 +197,10 @@ class IBVS_Telemetry(Node):
             pts = self.detected_corners.reshape((-1,1,2)).astype(np.int32)
             cv2.polylines(stream,[pts],True,(0,255,0),2)
 
-        if undistorted_pts is not None:
-            pts_u = np.asarray(undistorted_pts).reshape(-1, 2)
-            pts_u_draw = (pts_u * [sx, sy]).astype(np.int32)
-            cv2.polylines(stream, [pts_u_draw], True, (0, 255, 0), 2)
+        # if undistorted_pts is not None:
+        #     pts_u = np.asarray(undistorted_pts).reshape(-1, 2)
+        #     pts_u_draw = (pts_u * [sx, sy]).astype(np.int32)
+        #     cv2.polylines(stream, [pts_u_draw], True, (0, 255, 0), 2)
 
         if raw_pts is not None:
             pts_r = np.asarray(raw_pts).reshape(-1, 2)
