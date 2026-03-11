@@ -147,18 +147,20 @@ class IBVS_Telemetry(Node):
         self.CX = msg.k[2]
         self.CY = msg.k[5]
     
-        self.get_logger().info(
-            f"Camera intrinsics: fx={self.FX:.2f}, fy={self.FY:.2f}, "
-            f"cx={self.CX:.2f}, cy={self.CY:.2f}"
-        )
-    
-        # hitung ulang desired corners
-        self.desired = self.desired_corners_from_Z(Z_DES)
         self.camera_matrix = np.array([
             [self.FX, 0, self.CX],
             [0, self.FY, self.CY],
             [0, 0, 1]
         ], dtype=np.float32)
+    
+        self.dist_coeffs = np.array(msg.d, dtype=np.float32)
+    
+        self.get_logger().info(
+            f"Camera intrinsics: fx={self.FX:.2f}, fy={self.FY:.2f}, "
+            f"cx={self.CX:.2f}, cy={self.CY:.2f}"
+        )
+    
+        self.desired = self.desired_corners_from_Z(Z_DES)
     
     # ---------------- Callbacks for subscribed image + corners ----------------
     def cb_corners(self, msg):
