@@ -34,17 +34,17 @@ class IBVSRCController(Node):
         self.depth_img = None
         self.last_tag_time = None
         self.tag_lost = True
-        self.TAG_TIMEOUT = 2.5  # seconds
+        self.TAG_TIMEOUT = 0.5  # seconds
 
         # RC command buffer (IMPORTANT)
         self.rc_cmd = [1500] * 18
 
         # ---------------- Gains (TUNE IN WATER) ----------------
-        self.K_SURGE = 800
-        self.K_SWAY  = 1500
-        self.K_HEAVE = 500
+        self.K_SURGE = 500
+        self.K_SWAY  = 1200
+        self.K_HEAVE = 750
         self.K_YAW   = 200
-        self.HEAVE_BIAS = -100
+        self.HEAVE_BIAS = -133
 
         # ---------------- Desired image features ----------------
         self.desired_pts = self.compute_desired_corners(
@@ -77,9 +77,9 @@ class IBVSRCController(Node):
         x = (u - CX) / FX
         y = (v - CY) / FY
         return np.array([
-            [-1/Z,    0,    x/Z,    x*y,   -(1 + x*x),  y],
-            [0,     -1/Z,   y/Z,  1 + y*y,    -x*y,    -x],
-            [0,       0,    -1,     -y*Z,      x*Z,     0]
+            [-1/Z,  0,    x/Z,      x*y,     -(1 + x*x),  y],
+            [0,    -1/Z,  y/Z,    1 + y*y,      -x*y,    -x],
+            [0,     0, -1/Z_DES, -y*Z/Z_DES,  x*Z/Z_DES,  0]
         ])
 
     # =========================================================
@@ -109,18 +109,19 @@ class IBVSRCController(Node):
 
             x, y = (u - CX)/FX, (v - CY)/FY
             xd, yd = (self.desired_pts[i] - [CX, CY]) / [FX, FY]
-            errs.extend([x - xd, y - yd, Z - Z_DES])
+            z_norm = (Z - Z_DES) / Z_DES
+            errs.extend([x - xd, y - yd, z_norm])
             # errs.extend([x - xd, y - yd, 0.25*(Z - Z_DES)])
 
         L = np.vstack(rows)
         e = np.array(errs).reshape(-1, 1)
 
-        A = L.T @ W @ L + mu**2 * np.eye(6)
-        b = L.T @ W @ e
+        A = L.T @ L + mu**2 * np.eye(6)
+        b = L.T @ e
         Vc = - np.diag(LAMBDA_P) @ np.linalg.solve(A,b)
 
         pixel_err_magnitude = np.abs(pixel_err)
-        if np.max(pixel_err_magnitude) < 0.5:
+        if np.max(pixel_err_magnitude) < 1.5:
             Vc[:] = 0.0
 
         Vc[0:3] = np.clip(Vc[0:3], -MAX_LIN_VEL, MAX_LIN_VEL)
@@ -146,14 +147,18 @@ class IBVSRCController(Node):
         vel_msg.twist.angular.y = float(Wb[1])
         vel_msg.twist.angular.z = float(Wb[2])
         self.vel_pub.publish(vel_msg)
-
+        
         self.get_logger().info(
-            f"Vc: [{Vc[0]:.2f}, {Vc[1]:.2f}, {Vc[2]:.2f}, {Vc[3]:.2f}, {Vc[4]:.2f}, {Vc[5]:.2f}]",
-            throttle_duration_sec=0.5
-        )
-
-        self.get_logger().info(
-            f"Vb: [{Vb[0]:.2f}, {Vb[1]:.2f}, {Vb[2]:.2f}, {Wb[0]:.2f}, {Wb[1]:.2f}, {Wb[2]:.2f}]",
+            f"Surge = {Vb[0]} |"
+            f"Sway = {Vb[1]} |"
+            f"Heave = {Vb[2]} |"
+            f"Yaw Body = {Wb[2]}"
+            f"C1 = {Vc[0]} |"
+            f"C2 = {Vc[1]} |"
+            f"C3 = {Vc[2]} |"
+            f"C4 = {Vc[3]} |"
+            f"C5 = {Vc[4]} |"
+            f"c6 = {Vc[5]} |",
             throttle_duration_sec=0.5
         )
 
@@ -173,9 +178,9 @@ class IBVSRCController(Node):
         self.pwm_pub.publish(msg_pwm)
 
         self.get_logger().info(
-            f"Surge(RC5) = {pwm[4]} | "
-            f"Sway(RC6) = {pwm[5]} | "
-            f"Heave(RC3) = {pwm[2]} | "
+            f"Surge(RC5) = {pwm[4]} |"
+            f"Sway(RC6) = {pwm[5]} |"
+            f"Heave(RC3) = {pwm[2]} |"
             f"Yaw(RC4) = {pwm[3]}",
             throttle_duration_sec=0.5
         )
