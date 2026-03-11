@@ -137,7 +137,7 @@ class IBVSRCController(Node):
         Vc = - np.diag(LAMBDA_P) @ np.linalg.solve(A,b)
 
         pixel_err_magnitude = np.abs(pixel_err)
-        if np.max(pixel_err_magnitude) < 0.002:
+        if np.max(pixel_err_magnitude) < 0.005:
             Vc[:] = 0.0
 
         Vc[0:3] = np.clip(Vc[0:3], -MAX_LIN_VEL, MAX_LIN_VEL)
