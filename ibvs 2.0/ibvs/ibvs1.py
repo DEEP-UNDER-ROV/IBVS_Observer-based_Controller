@@ -108,13 +108,9 @@ class IBVSRCController(Node):
         pixel_err = []
 
         for i, p in enumerate(msg.polygon.points):
-            u, v, Z = p.x, p.y, p.z
+            x, y, Z = p.x, p.y, p.z
             if Z <= 0:
                 return
-
-            # Normalize once
-            x = (u - CX) / FX
-            y = (v - CY) / FY
             
             # Desired normalized
             xd, yd = self.desired_pts[i]
