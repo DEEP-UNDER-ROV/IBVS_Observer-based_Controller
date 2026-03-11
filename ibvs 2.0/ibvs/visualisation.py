@@ -162,7 +162,14 @@ class IBVS_Telemetry(Node):
         stream = color.copy()
         sx, sy = 1.0, 1.0
 
-        desired_draw = (self.desired * np.array([sx, sy])).astype(np.int32).reshape(-1, 1, 2)
+        desired_pixels = np.zeros_like(self.desired)
+
+        for i,(xd,yd) in enumerate(self.desired):
+            u = FX * xd + CX
+            v = FY * yd + CY
+            desired_pixels[i] = [u,v]
+        
+        desired_draw = desired_pixels.astype(np.int32).reshape(-1,1,2)
         cv2.polylines(stream, [desired_draw], True, (0, 0, 255), 2)
 
         if self.detected_corners is not None:
