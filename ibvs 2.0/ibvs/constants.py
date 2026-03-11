@@ -1,4 +1,15 @@
 import numpy as np
+# --- Camera Matrix (Intrinsics)
+FX = 422.639
+FY = 424.172
+CX = 426.330
+CY = 240.828
+
+
+# --- Distortion Coefficients (k1, k2, p1, p2, k3) ---
+DIST_COEFFS = [-0.0131761, 0.000339851, -0.00139667, 0.00330581, 0.0]
+
+
 # --- ASEPP Physical Offsets (Camera relative to CoG) ---
 P_CB_X = 0.17
 P_CB_Y = -0.0475
