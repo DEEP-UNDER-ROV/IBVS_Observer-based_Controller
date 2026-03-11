@@ -46,36 +46,47 @@ class IBVSRCController(Node):
         self.K_YAW   = 200
         self.HEAVE_BIAS = -133
 
-        # ---------------- Desired image features ----------------
-        self.desired_pts = self.compute_desired_corners(
-            Z_DES, FX, FY, CX, CY, TAG_SIZE
-        )
-
         # ---------------- Timers ----------------
         self.create_timer(0.1, self.tag_watchdog)
         self.create_timer(1.0/25.0, self.publish_rc)
         self.get_logger().info("IBVS Control Active")
 
-    # =========================================================
-    def compute_desired_corners(self, Z_des, fx, fy, cx, cy, tag_size):
-        s = tag_size / 2.0
-        corners = np.array([
-            [-s, -s, Z_des],
-            [ s, -s, Z_des],
-            [ s,  s, Z_des],
-            [-s,  s, Z_des],
-        ])
+        self.desired_pts = self.compute_desired_corners(Z_DES)
 
-        pts = np.zeros((4, 2))
-        for i, (X, Y, Z) in enumerate(corners):
-            pts[i, 0] = fx * X / Z + cx
-            pts[i, 1] = fy * Y / Z + cy
+    def compute_desired_corners(self, Z_des):
+
+        half = TAG_SIZE / 2.0
+    
+        corners = np.array([
+            [-half, -half],
+            [ half, -half],
+            [ half,  half],
+            [-half,  half],
+        ])
+    
+        desired = corners / Z_des
+    
+        return desired
+
+    def reorder_corners_ccw(self, pts):
+        pts = np.array(pts)
+    
+        cx = np.mean(pts[:,0])
+        cy = np.mean(pts[:,1])
+    
+        angles = np.arctan2(pts[:,1] - cy, pts[:,0] - cx)
+        order = np.argsort(angles)
+    
+        pts = pts[order]
+    
+        # rotate so first point is bottom-left
+        idx = np.argmin(pts[:,0] + pts[:,1])
+        pts = np.roll(pts, -idx, axis=0)
+    
         return pts
 
     # =========================================================
-    def interaction_matrix(self, u, v, Z):
-        x = (u - CX) / FX
-        y = (v - CY) / FY
+    def interaction_matrix(self, x, y, Z):
         return np.array([
             [-1/Z,  0,    x/Z,      x*y,     -(1 + x*x),  y],
             [0,    -1/Z,  y/Z,    1 + y*y,      -x*y,    -x],
@@ -98,19 +109,25 @@ class IBVSRCController(Node):
         errs = []
         pixel_err = []
 
-        for i, p in enumerate(msg.polygon.points):
-            u, v, Z = p.x, p.y, p.z
+        pts = np.array([[p.x, p.y, p.z] for p in msg.polygon.points])
+        pts = self.reorder_corners_ccw(pts)
+        for i in range(4):
+            x, y, Z = pts[i]
             if Z <= 0:
                 return
-                
-            ud, vd = self.desired_pts[i]
-            pixel_err.extend([u - ud, v - vd])
-            rows.append(self.interaction_matrix(u, v, Z))
-
-            x, y = (u - CX)/FX, (v - CY)/FY
-            xd, yd = (self.desired_pts[i] - [CX, CY]) / [FX, FY]
+            
+            # Desired normalized
+            xd, yd = self.desired_pts[i]
+            
+            # Build interaction matrix using normalized coords
+            rows.append(self.interaction_matrix(x, y, Z))
+            
+            # Error vector
             errs.extend([x - xd, y - yd, Z - Z_DES])
-
+            
+            # Stop condition error
+            pixel_err.extend([x - xd, y - yd])
+            
         L = np.vstack(rows)
         e = np.array(errs).reshape(-1, 1)
 
@@ -119,7 +136,7 @@ class IBVSRCController(Node):
         Vc = - np.diag(LAMBDA_P) @ np.linalg.solve(A,b)
 
         pixel_err_magnitude = np.abs(pixel_err)
-        if np.max(pixel_err_magnitude) < 1.5:
+        if np.max(pixel_err_magnitude) < 0.005:
             Vc[:] = 0.0
 
         Vc[0:3] = np.clip(Vc[0:3], -MAX_LIN_VEL, MAX_LIN_VEL)
@@ -145,18 +162,22 @@ class IBVSRCController(Node):
         vel_msg.twist.angular.y = float(Wb[1])
         vel_msg.twist.angular.z = float(Wb[2])
         self.vel_pub.publish(vel_msg)
+
+        self.get_logger().info(
+            f"Cam_PosX = {Vc[0]} |"
+            f"Cam_PosY = {Vc[1]} |"
+            f"Cam_PosZ = {Vc[2]} |"
+            f"Cam_RotX = {Vc[3]} |"
+            f"Cam_RotY = {Vc[4]} |"
+            f"Cam_RotZ = {Vc[5]} |",
+            throttle_duration_sec=0.5
+        )
         
         self.get_logger().info(
             f"Surge = {Vb[0]} |"
             f"Sway = {Vb[1]} |"
             f"Heave = {Vb[2]} |"
-            f"Yaw Body = {Wb[2]}"
-            f"C1 = {Vc[0]} |"
-            f"C2 = {Vc[1]} |"
-            f"C3 = {Vc[2]} |"
-            f"C4 = {Vc[3]} |"
-            f"C5 = {Vc[4]} |"
-            f"c6 = {Vc[5]} |",
+            f"Yaw Body = {Wb[2]}",
             throttle_duration_sec=0.5
         )
 
