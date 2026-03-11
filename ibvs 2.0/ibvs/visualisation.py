@@ -4,6 +4,7 @@ from rclpy.node import Node
 import cv2
 import numpy as np
 from cv_bridge import CvBridge
+from rclpy.qos import QoSProfile, ReliabilityPolicy
 
 from std_msgs.msg import Float32MultiArray
 from geometry_msgs.msg import PolygonStamped, Point32, Twist, Point, Vector3Stamped, TwistStamped
@@ -64,8 +65,11 @@ class IBVS_Telemetry(Node):
         self.create_subscription(TwistStamped, "/ibvs/vel", self.cb_vel, 10)
         self.create_subscription(Float32MultiArray, "/ibvs/error", self.cb_err, 10)
         
-        self.create_subscription(PolygonStamped, "/apriltag/corners", self.cb_corners, 10)
-        self.create_subscription(Image, "/corrected/left/image_raw/image_topics", self.cb_image, 10)
+        qos = QoSProfile(depth=10)
+        qos.reliability = ReliabilityPolicy.BEST_EFFORT
+
+        self.create_subscription(PolygonStamped,"/apriltag/corners",self.cb_corners,qos)
+        self.create_subscription(Image, "/corrected/left/image_raw", self.cb_image, 10)
 
         self.current_rc = None
         self.current_rc_out = None
