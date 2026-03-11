@@ -27,8 +27,8 @@ class IBVS_Telemetry(Node):
 
         desired = np.zeros((4, 2), dtype=np.float32)
         for i, (X, Y, Z) in enumerate(corners_3d):
-            desired[i, 0] = fx * X / Z + cx
-            desired[i, 1] = fy * Y / Z + cy
+            desired[i, 0] = FX * X / Z + CX
+            desired[i, 1] = FY * Y / Z + CY
         return desired
     
     def reorder_corners_ccw(self, pts):
