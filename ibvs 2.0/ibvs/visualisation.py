@@ -27,10 +27,8 @@ class IBVS_Telemetry(Node):
 
         desired = np.zeros((4, 2), dtype=np.float32)
         for i, (X, Y, Z) in enumerate(corners_3d):
-            desired[i] = [
-                self.FX * X / Z + self.CX,
-                self.FY * Y / Z + self.CY
-            ]
+            desired[i, 0] = fx * X / Z + cx
+            desired[i, 1] = fy * Y / Z + cy
         return desired
     
     def reorder_corners_ccw(self, pts):
@@ -65,7 +63,6 @@ class IBVS_Telemetry(Node):
 
         # ---------------- Subscriptions ----------------
         self.create_subscription(AprilTagDetectionArray, "/detection1", self.cb_detection, 10)
-        self.create_subscription(CameraInfo,"/corrected/left/camera_info",self.cb_camera_info,10)
         self.create_subscription(OverrideRCIn, "/mavros/rc/override", self.cb_rc, 10)
         self.create_subscription(RCOut, "/mavros/rc/out", self.cb_rc_out, 10)
         self.create_subscription(TwistStamped, "/ibvs/vel", self.cb_vel, 10)
@@ -84,16 +81,11 @@ class IBVS_Telemetry(Node):
         self.current_err = None
         self.last_poly = None
 
-        self.FX = FX
-        self.FY = FY
-        self.CX = CX
-        self.CY = CY
-        self.desired = self.desired_corners_from_Z(Z_DES)
-
-        self.camera_matrix = np.array([[self.FX, 0, self.CX],
-                                       [0, self.FY, self.CY],
+        self.camera_matrix = np.array([[FX, 0, CX],
+                                       [0, FY, CY],
                                        [0,  0,  1]], dtype=np.float32)
         self.dist_coeffs = np.array(DIST_COEFFS, dtype=np.float32)
+        self.desired = self.desired_corners_from_Z(Z_DES)
 
         
         self.bridge = CvBridge()
@@ -140,21 +132,6 @@ class IBVS_Telemetry(Node):
     
         pts = np.array([[c.x, c.y] for c in det.corners], dtype=np.float32)
         self.detected_corners = self.reorder_corners_ccw(pts)
-
-    def cb_camera_info(self, msg):
-        self.FX = msg.k[0]
-        self.FY = msg.k[4]
-        self.CX = msg.k[2]
-        self.CY = msg.k[5]
-    
-        self.camera_matrix = np.array([
-            [self.FX, 0, self.CX],
-            [0, self.FY, self.CY],
-            [0, 0, 1]
-        ], dtype=np.float32)
-    
-        self.dist_coeffs = np.array(msg.d, dtype=np.float32)    
-        self.desired = self.desired_corners_from_Z(Z_DES)
     
     # ---------------- Callbacks for subscribed image + corners ----------------
     def cb_corners(self, msg):
