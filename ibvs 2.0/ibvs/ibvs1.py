@@ -46,31 +46,25 @@ class IBVSRCController(Node):
         self.K_YAW   = 200
         self.HEAVE_BIAS = -133
 
-        # ---------------- Desired image features ----------------
-        self.desired_pts = self.compute_desired_corners(
-            Z_DES, FX, FY, CX, CY, TAG_SIZE
-        )
-
         # ---------------- Timers ----------------
         self.create_timer(0.1, self.tag_watchdog)
         self.create_timer(1.0/25.0, self.publish_rc)
         self.get_logger().info("IBVS Control Active")
 
     # =========================================================
-    def compute_desired_corners(self, Z_des, fx, fy, cx, cy, tag_size):
-        s = tag_size / 2.0
-        corners = np.array([
-            [-s, -s, Z_des],
-            [ s, -s, Z_des],
-            [ s,  s, Z_des],
-            [-s,  s, Z_des],
+    def desired_corners_from_Z(self, Z_des):
+        half = TAG_SIZE / 2.0
+        corners_3d = np.array([
+            [-half, -half, Z_des],
+            [ half, -half, Z_des],
+            [ half,  half, Z_des],
+            [-half,  half, Z_des],
         ])
 
-        pts = np.zeros((4, 2))
-        for i, (X, Y, Z) in enumerate(corners):
-            pts[i, 0] = fx * X / Z + cx
-            pts[i, 1] = fy * Y / Z + cy
-        return pts
+        desired = np.zeros((4, 2), dtype=np.float32)
+        for i, (X, Y, Z) in enumerate(corners_3d):
+            desired[i] = [FX * X / Z + CX, FY * Y / Z + CY]
+        return desired
 
     # =========================================================
     def interaction_matrix(self, u, v, Z):
