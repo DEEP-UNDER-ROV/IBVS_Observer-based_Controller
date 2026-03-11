@@ -18,16 +18,19 @@ from ibvs.constants import *
 class IBVS_Telemetry(Node):
     def compute_desired_corners(self, Z_des):
         half = TAG_SIZE / 2.0
+    
         corners_3d = np.array([
             [-half, -half, Z_des],
             [ half, -half, Z_des],
             [ half,  half, Z_des],
             [-half,  half, Z_des],
         ])
-
-        desired = np.zeros((4, 2), dtype=np.float32)
-        for i, (X, Y, Z) in enumerate(corners_3d):
-            desired[i] = [FX * X / Z + CX, FY * Y / Z + CY]
+    
+        desired = np.zeros((4,2), dtype=np.float32)
+    
+        for i,(X,Y,Z) in enumerate(corners_3d):
+            desired[i] = [X/Z, Y/Z]   # normalized coordinates
+    
         return desired
     
     def reorder_corners_ccw(self, pts):
