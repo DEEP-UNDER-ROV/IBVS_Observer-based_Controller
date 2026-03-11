@@ -26,7 +26,8 @@ class IBVSRCController(Node):
         # ---------------- Publishers ----------------
         self.rc_override_pub = self.create_publisher(OverrideRCIn, "/mavros/rc/override", 10)
         self.pwm_pub = self.create_publisher(Int16MultiArray, "/ibvs/pwm_debug", 10)
-        self.vel_pub = self.create_publisher(TwistStamped, "/ibvs/vel", 10)
+        self.vel_cam_pub = self.create_publisher(TwistStamped, "/ibvs/vel_cam", 10)
+        self.vel_body_pub = self.create_publisher(TwistStamped, "/ibvs/vel_body", 10)
         self.err_pub = self.create_publisher(Float32MultiArray, "/ibvs/error", 10)
 
         # ---------------- State ----------------
@@ -152,16 +153,29 @@ class IBVSRCController(Node):
         Vb = (R_CB @ v_c).reshape(3,) + np.cross(Wb, P_CB.reshape(3,))
         Vb[2] = -Vb[2]
 
-        vel_msg = TwistStamped()
-        vel_msg.header.stamp = msg.header.stamp
-        vel_msg.header.frame_id = "body"
-        vel_msg.twist.linear.x = float(Vb[0])
-        vel_msg.twist.linear.y = float(Vb[1])
-        vel_msg.twist.linear.z = float(Vb[2])
-        vel_msg.twist.angular.x = float(Wb[0])
-        vel_msg.twist.angular.y = float(Wb[1])
-        vel_msg.twist.angular.z = float(Wb[2])
-        self.vel_pub.publish(vel_msg)
+        vel_cam_msg = TwistStamped()
+        vel_cam_msg.header.stamp = msg.header.stamp
+        vel_cam_msg.header.frame_id = "camera"
+        
+        vel_cam_msg.twist.linear.x = float(Vc[0])
+        vel_cam_msg.twist.linear.y = float(Vc[1])
+        vel_cam_msg.twist.linear.z = float(Vc[2])
+        vel_cam_msg.twist.angular.x = float(Vc[3])
+        vel_cam_msg.twist.angular.y = float(Vc[4])
+        vel_cam_msg.twist.angular.z = float(Vc[5])
+        self.vel_cam_pub.publish(vel_cam_msg)
+
+        vel_body_msg = TwistStamped()
+        vel_body_msg.header.stamp = msg.header.stamp
+        vel_body_msg.header.frame_id = "body"
+        
+        vel_body_msg.twist.linear.x = float(Vb[0])
+        vel_body_msg.twist.linear.y = float(Vb[1])
+        vel_body_msg.twist.linear.z = float(Vb[2])
+        vel_body_msg.twist.angular.x = float(Wb[0])
+        vel_body_msg.twist.angular.y = float(Wb[1])
+        vel_body_msg.twist.angular.z = float(Wb[2])
+        self.vel_body_pub.publish(vel_body_msg)
 
         self.get_logger().info(
             f"Cam_PosX = {Vc[0]} |"
