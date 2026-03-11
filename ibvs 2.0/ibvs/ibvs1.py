@@ -51,19 +51,36 @@ class IBVSRCController(Node):
         self.create_timer(1.0/25.0, self.publish_rc)
         self.get_logger().info("IBVS Control Active")
 
-    # =========================================================
-    def compute_desired_corners(self, Z_des):
-        half = TAG_SIZE / 2.0
-        corners_3d = np.array([
-            [-half, -half, Z_des],
-            [ half, -half, Z_des],
-            [ half,  half, Z_des],
-            [-half,  half, Z_des],
-        ])
+        self.desired_pts = self.compute_desired_corners(Z_DES)
 
-        desired = np.zeros((4, 2), dtype=np.float32)
-        for i, (X, Y, Z) in enumerate(corners_3d):
-            desired[i] = [FX * X / Z + CX, FY * Y / Z + CY]
+    # =========================================================
+    # def compute_desired_corners(self, Z_des):
+    #     half = TAG_SIZE / 2.0
+    #     corners_3d = np.array([
+    #         [-half, -half, Z_des],
+    #         [ half, -half, Z_des],
+    #         [ half,  half, Z_des],
+    #         [-half,  half, Z_des],
+    #     ])
+
+    #     desired = np.zeros((4, 2), dtype=np.float32)
+    #     for i, (X, Y, Z) in enumerate(corners_3d):
+    #         desired[i] = [FX * X / Z + CX, FY * Y / Z + CY]
+    #     return desired
+
+    def compute_desired_corners(self, Z_des):
+
+        half = TAG_SIZE / 2.0
+    
+        corners = np.array([
+            [-half, -half],
+            [ half, -half],
+            [ half,  half],
+            [-half,  half],
+        ])
+    
+        desired = corners / Z_des
+    
         return desired
 
     # =========================================================
@@ -97,15 +114,17 @@ class IBVSRCController(Node):
             if Z <= 0:
                 return
                 
-            ud, vd = self.compute_desired_corners[i]
+            ud, vd = self.desired_pts[i]
             pixel_err.extend([u - ud, v - vd])
             rows.append(self.interaction_matrix(u, v, Z))
 
             x = (u - CX) / FX
             y = (v - CY) / FY
 
-            xd = (ud - CX) / FX
-            yd = (vd - CY) / FY
+            # xd = (ud - CX) / FX
+            # yd = (vd - CY) / FY
+
+            xd, yd = self.desired_pts[i]
             
             z_norm = (Z - Z_DES) / Z_DES
             errs.extend([x - xd, y - yd, z_norm])
