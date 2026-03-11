@@ -68,6 +68,23 @@ class IBVSRCController(Node):
     
         return desired
 
+    def reorder_corners_ccw(self, pts):
+        pts = np.array(pts)
+    
+        cx = np.mean(pts[:,0])
+        cy = np.mean(pts[:,1])
+    
+        angles = np.arctan2(pts[:,1] - cy, pts[:,0] - cx)
+        order = np.argsort(angles)
+    
+        pts = pts[order]
+    
+        # rotate so first point is bottom-left
+        idx = np.argmin(pts[:,0] + pts[:,1])
+        pts = np.roll(pts, -idx, axis=0)
+    
+        return pts
+
     # =========================================================
     def interaction_matrix(self, x, y, Z):
         return np.array([
@@ -92,8 +109,10 @@ class IBVSRCController(Node):
         errs = []
         pixel_err = []
 
-        for i, p in enumerate(msg.polygon.points):
-            x, y, Z = p.x, p.y, p.z
+        pts = np.array([[p.x, p.y, p.z] for p in msg.polygon.points])
+        pts = self.reorder_corners_ccw(pts)
+        for i in range(4):
+            x, y, Z = pts[i]
             if Z <= 0:
                 return
             
