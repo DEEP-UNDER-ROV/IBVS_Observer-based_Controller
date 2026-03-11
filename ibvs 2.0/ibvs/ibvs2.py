@@ -110,7 +110,6 @@ class IBVSRCController(Node):
             x, y = (u - CX)/FX, (v - CY)/FY
             xd, yd = (self.desired_pts[i] - [CX, CY]) / [FX, FY]
             errs.extend([x - xd, y - yd, Z - Z_DES])
-            # errs.extend([x - xd, y - yd, 0.25*(Z - Z_DES)])
 
         L = np.vstack(rows)
         e = np.array(errs).reshape(-1, 1)
