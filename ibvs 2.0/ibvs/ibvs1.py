@@ -107,19 +107,17 @@ class IBVSRCController(Node):
             pixel_err.extend([u - ud, v - vd])
             rows.append(self.interaction_matrix(u, v, Z))
 
-            x, y = (u - CX)/FX, (v - CY)/FY
-            
-            ud = self.desired_pts[i,0]
-            vd = self.desired_pts[i,1]
-            
+            x = (u - CX) / FX
+            y = (v - CY) / FY
+
             xd = (ud - CX) / FX
             yd = (vd - CY) / FY
             
             z_norm = (Z - Z_DES) / Z_DES
             errs.extend([x - xd, y - yd, z_norm])
-            print("Actual:", p.x, p.y)
-            print("Desired:", self.desired_pts[i])
-            # errs.extend([x - xd, y - yd, 0.25*(Z - Z_DES)])
+            print("Actual norm:", x, y)
+            print("Desired norm:", xd, yd)
+            print("Error:", x-xd, y-yd)
 
         L = np.vstack(rows)
         e = np.array(errs).reshape(-1, 1)
