@@ -19,7 +19,7 @@ P_CB_Z = 0.0
 # --- IBVS Control Parameters ---
 LAMBDA_P = np.array([0.8, 0.8, 0.6, 0.0, 0.5, 0.0]) # Surge - Sway - Heave - Roll - Pitch - Yaw
 mu = 0.2
-Z_DES = 1.2
+Z_DES = 1.9
 TAG_SIZE = 0.2065
 PATCH = 2
 
