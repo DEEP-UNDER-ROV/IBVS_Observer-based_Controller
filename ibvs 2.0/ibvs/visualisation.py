@@ -16,7 +16,7 @@ from ibvs.constants import *
 
 
 class IBVS_Telemetry(Node):
-    def desired_corners_from_Z(self, Z_des):
+    def compute_desired_corners(self, Z_des):
         half = TAG_SIZE / 2.0
         corners_3d = np.array([
             [-half, -half, Z_des],
@@ -84,7 +84,7 @@ class IBVS_Telemetry(Node):
                                        [0, FY, CY],
                                        [0,  0,  1]], dtype=np.float32)
         self.dist_coeffs = np.array(DIST_COEFFS, dtype=np.float32)
-        self.desired = self.desired_corners_from_Z(Z_DES)
+        self.desired = self.compute_desired_corners(Z_DES)
 
         
         self.bridge = CvBridge()
