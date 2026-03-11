@@ -1,4 +1,4 @@
-# IBVS Full LS 3 Stacked Normalized Z
+#IBVS Z_err Meter
 
 #!/usr/bin/env python3
 import rclpy
@@ -79,7 +79,7 @@ class IBVSRCController(Node):
         return np.array([
             [-1/Z,  0,    x/Z,      x*y,     -(1 + x*x),  y],
             [0,    -1/Z,  y/Z,    1 + y*y,      -x*y,    -x],
-            [0,     0, -1/Z_DES, -y*Z/Z_DES,  x*Z/Z_DES,  0]
+            [0,     0, -1, -y*Z,  x*Z,  0]
         ])
 
     # =========================================================
@@ -109,8 +109,7 @@ class IBVSRCController(Node):
 
             x, y = (u - CX)/FX, (v - CY)/FY
             xd, yd = (self.desired_pts[i] - [CX, CY]) / [FX, FY]
-            z_norm = (Z - Z_DES) / Z_DES
-            errs.extend([x - xd, y - yd, z_norm])
+            errs.extend([x - xd, y - yd, Z - Z_DES])
             # errs.extend([x - xd, y - yd, 0.25*(Z - Z_DES)])
 
         L = np.vstack(rows)
