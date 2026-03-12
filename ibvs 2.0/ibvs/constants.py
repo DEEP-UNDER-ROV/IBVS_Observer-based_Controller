@@ -31,12 +31,12 @@ K_SURGE = 500
 K_SWAY  = 1200
 K_HEAVE = 750
 K_YAW   = 200
-HEAVE_BIAS = 15
+HEAVE_BIAS = 20
 
 
 # --- Velocity Limits ---
-MAX_LIN_VEL = 0.5
-MAX_ANG_VEL = 0.2
+MAX_LIN_VEL = 0.2
+MAX_ANG_VEL = 0.08
 
 
 # --- QGC Port Configuration ---
