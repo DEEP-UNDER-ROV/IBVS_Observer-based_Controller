@@ -17,11 +17,22 @@ P_CB_Z = 0.0
 
 
 # --- IBVS Control Parameters ---
-LAMBDA_P = np.array([0.8, 0.8, 0.6, 0.0, 0.5, 0.0]) # Surge - Sway - Heave - Roll - Pitch - Yaw
+Kp = np.array([0.6, 0.6, 0.5, 0.0, 0.3, 0.0]) # Surge - Sway - Heave - Roll - Pitch - Yaw
+Kd = np.array([0.2, 0.2, 0.2, 0.0, 0.05, 0.0])
+Ki = np.array([0.08, 0.08, 0.08, 0.0, 0.05, 0.0])
+
 mu = 0.2
-Z_DES = 1.9
+Z_DES = 1.5
 TAG_SIZE = 0.2065
 PATCH = 2
+
+# ---------------- Gains (TUNE IN WATER) ----------------
+K_SURGE = 500
+K_SWAY  = 1200
+K_HEAVE = 750
+K_YAW   = 200
+HEAVE_BIAS = 15
+
 
 # --- Velocity Limits ---
 MAX_LIN_VEL = 0.5
