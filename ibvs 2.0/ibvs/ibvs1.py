@@ -33,18 +33,15 @@ class IBVSRCController(Node):
         self.current_pwm = [1500] * 18
         self.depth_img = None
         self.last_tag_time = None
+        # PID state
+        self.e_prev = None
+        self.e_integral = None
+        self.last_time = None
         self.tag_lost = True
         self.TAG_TIMEOUT = 0.5  # seconds
 
         # RC command buffer (IMPORTANT)
         self.rc_cmd = [1500] * 18
-
-        # ---------------- Gains (TUNE IN WATER) ----------------
-        self.K_SURGE = 500
-        self.K_SWAY  = 1200
-        self.K_HEAVE = 750
-        self.K_YAW   = 200
-        self.HEAVE_BIAS = -133
 
         # ---------------- Timers ----------------
         self.create_timer(0.1, self.tag_watchdog)
@@ -132,9 +129,36 @@ class IBVSRCController(Node):
         L = np.vstack(rows)
         e = np.array(errs).reshape(-1, 1)
 
+        # ---------- Time step ----------
+        now = self.get_clock().now()
+        
+        if self.last_time is None:
+            dt = 0.04
+        else:
+            dt = (now - self.last_time).nanoseconds * 1e-9
+        
+        self.last_time = now
+        
+        # ---------- Initialize PID states ----------
+        if self.e_prev is None:
+            self.e_prev = np.zeros_like(e)
+            self.e_integral = np.zeros_like(e)
+        
+        # ---------- PID terms ----------
+        self.e_integral += e * dt
+        self.e_integral = np.clip(self.e_integral, -0.2, 0.2)
+        e_dot = (e - self.e_prev) / dt
+        self.e_prev = e
+
+        alpha = 0.7
+        self.e_dot = alpha*self.e_dot + (1-alpha)*((e - self.e_prev)/dt)
+        
+        # PID control signal
+        u = (np.diag(Kp) @ e) + (np.diag(Ki) @ self.e_integral) + (np.diag(Kd) @ e_dot)
+
         A = L.T @ L + mu**2 * np.eye(6)
-        b = L.T @ e
-        Vc = - np.diag(LAMBDA_P) @ np.linalg.solve(A,b)
+        b = L.T @ u
+        Vc = -np.linalg.solve(A,b)
 
         pixel_err_magnitude = np.abs(pixel_err)
         if np.max(pixel_err_magnitude) < 0.005:
@@ -198,10 +222,10 @@ class IBVSRCController(Node):
         # -------- Compute PWM --------
         pwm = [1500] * 18
         
-        pwm[4] = self.vel_to_pwm(Vb[0], self.K_SURGE)
-        pwm[5] = self.vel_to_pwm(Vb[1], self.K_SWAY)
-        pwm[2] = self.vel_to_pwm(Vb[2], self.K_HEAVE, self.HEAVE_BIAS)
-        pwm[3] = self.vel_to_pwm(Wb[2], self.K_YAW)
+        pwm[4] = self.vel_to_pwm(Vb[0], K_SURGE)
+        pwm[5] = self.vel_to_pwm(Vb[1], K_SWAY)
+        pwm[2] = self.vel_to_pwm(Vb[2], K_HEAVE, HEAVE_BIAS)
+        pwm[3] = self.vel_to_pwm(Wb[2], K_YAW)
 
         self.current_pwm = pwm 
         
@@ -239,6 +263,9 @@ class IBVSRCController(Node):
             if not self.tag_lost:
                 self.tag_lost = True
                 self.get_logger().warn("AprilTag LOST → Neutral RC")
+                self.e_prev = None
+                self.e_integral = None
+                self.last_time = None
             
             # Only reset to neutral IF the tag is actually lost
             self.current_pwm = [1500] * 18
