@@ -41,17 +41,14 @@ class IBVSRCController(Node):
         self.v_dot = None
         self.last_time = None
 
-        self.declare_parameter("Kp", [0.5,0.5,0.5,0.0,0.2,0.0])
-        self.declare_parameter("Ki", [0.0,0.0,0.0,0.0,0.0,0.0])
-        self.declare_parameter("Kd", [0.0,0.0,0.0,0.0,0.0,0.0])
+        self.declare_parameter("Kp", [0.7,0.7,0.5,0.0,1.2,0.0])
+        self.declare_parameter("Ki", [0.0,0.0,0.0,0.0,0.2,0.0])
         
         self.Kp = np.array(self.get_parameter("Kp").value)
         self.Ki = np.array(self.get_parameter("Ki").value)
-        self.Kd = np.array(self.get_parameter("Kd").value)
         
         self.Kp_mat = np.diag(self.Kp)
         self.Ki_mat = np.diag(self.Ki)
-        self.Kd_mat = np.diag(self.Kd)
         
         self.add_on_set_parameters_callback(self.param_callback)
         
@@ -115,11 +112,7 @@ class IBVSRCController(Node):
             elif param.name == "Ki":
                 self.Ki = np.array(param.value)
                 self.Ki_mat = np.diag(self.Ki)
-            
-            elif param.name == "Kd":
-                self.Kd = np.array(param.value)
-                self.Kd_mat = np.diag(self.Kd)
-                
+                            
         return SetParametersResult(successful=True)
         
     # =========================================================
@@ -192,7 +185,7 @@ class IBVSRCController(Node):
         self.v_dot = alpha * self.v_dot + (1 - alpha) * v_dot_raw
         
         # ----------------- PID Control -----------------
-        Vc = (self.Kp_mat @ v_raw) + (self.Ki_mat @ self.v_integral) + (self.Kd_mat @ v_dot)
+        Vc = (self.Kp_mat @ v_raw) + (self.Ki_mat @ self.v_integral)
         self.v_prev = v_raw
 
         pixel_err_magnitude = np.abs(pixel_err)
