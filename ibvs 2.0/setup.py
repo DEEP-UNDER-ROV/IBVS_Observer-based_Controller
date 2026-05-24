@@ -6,7 +6,7 @@ package_name = 'ibvs'
 
 setup(
     name=package_name,
-    version='0.1',
+    version='0.2',
     packages=[package_name],
     data_files=[
         ('share/ament_index/resource_index/packages',
@@ -26,7 +26,7 @@ setup(
         'console_scripts': [
             'detector = ibvs.detector:main',
             'visualise = ibvs.visualisation:main',
-            'ibvs1 = ibvs.ibvs1:main',
+            'ibvs = ibvs.ibvs:main',
             'heave_trim = ibvs.heave_trim:main',
         ],
     },
