@@ -1,0 +1,46 @@
+1. Cmd RealSense Driver
+ros2 launch rov_vision uw_rs_apriltag_triangulation.launch.xml \
+  left_input:=/camera/camera/infra1/image_rect_raw \
+  right_input:=/camera/camera/infra2/image_rect_raw \
+  image_transport:=raw
+  
+ros2 launch rov_vision uw_rs_apriltag_triangulation.launch.xml
+ros2 param set /camera/camera depth_module.emitter_enabled 0
+
+2. Cmd MAVROS
+ros2 launch mavros apm.launch fcu_url:="serial:///dev/ttyACM0:921600" gcs_url:="udp://@192.168.4.1:14550"
+ros2 launch mavros apm.launch fcu_url:=“serial:///dev/ttyACM0:921600” gcs_url:="udp://@192.168.2.1:14550"
+
+3. Cmd IBVS Parameter
+ros2 run ibvs heave_trim
+ros2 param set /heave_trim_node bias -133
+
+ros2 param set /ibvs_rc_controller Kp [0.9,0.9,0.7,0.0,0.3,0.5]
+ros2 param get /ibvs_rc_controller Kp [/Ki /Kd]
+
+4. Cmd IBVS Controller
+ros2 run ibvs visualize
+ros2 run ibvs ibvs
+ros2 run ibvs ibvs
+
+5. Cmd Stream GStreamer
+ros2 run ibvs stream
+ros2 run ibvs stream --ros-args -p image_topic:="/camera/camera/color/image_raw"
+ros2 run ibvs stream --ros-args -p image_topic:="/camera/camera/color/image_raw"
+ros2 run ibvs stream --ros-args -p image_topic:="/camera/camera/color/image_raw"
+
+
+6. Cmd Reset FCU
+ros2 service call /mavros/cmd/command mavros_msgs/srv/CommandLong "{command: 246, param1: 1.0, param2: 0.0, param3: 0.0, param4: 0.0, param5: 0.0, param6: 0.0, param7: 0.0}"
+
+7. Cmd ROSBag Recording
+ros2 bag record --include-hidden-topics \
+  /apriltag/corners \
+  /detection1 \
+  /detection2 \
+  /ibvs/error \
+  /ibvs/pwm_debug \
+  /camera/overlay/image_raw/compressed
+
+8. Watch RPi Temp
+watch -n 1 sensors
