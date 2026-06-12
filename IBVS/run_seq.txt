@@ -7,6 +7,11 @@ ros2 launch rov_vision uw_rs_apriltag_triangulation.launch.xml \
 ros2 launch rov_vision uw_rs_apriltag_triangulation.launch.xml
 ros2 param set /camera/camera depth_module.emitter_enabled 0
 
+ros2 launch pb_perception rs_cam_launch.py
+
+ros2 launch realsense2_camera rs_launch.py
+
+
 2. Cmd MAVROS
 ros2 launch mavros apm.launch fcu_url:="serial:///dev/ttyACM0:921600" gcs_url:="udp://@192.168.4.1:14550"
 ros2 launch mavros apm.launch fcu_url:=“serial:///dev/ttyACM0:921600” gcs_url:="udp://@192.168.2.1:14550"
@@ -26,8 +31,8 @@ ros2 run ibvs ibvs
 5. Cmd Stream GStreamer
 ros2 run ibvs stream
 ros2 run ibvs stream --ros-args -p image_topic:="/camera/camera/color/image_raw"
-ros2 run ibvs stream --ros-args -p image_topic:="/camera/camera/color/image_raw"
-ros2 run ibvs stream --ros-args -p image_topic:="/camera/camera/color/image_raw"
+ros2 run ibvs stream --ros-args -p image_topic:="/camera/infra1/image_rect_raw"
+ros2 run ibvs stream --ros-args -p image_topic:="/corrected/left/image_raw"
 
 
 6. Cmd Reset FCU
