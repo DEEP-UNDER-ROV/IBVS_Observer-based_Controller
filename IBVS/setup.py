@@ -24,7 +24,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'stream = ibvs.stream:main',
+            'stream = ibvs.streamer:main',
             'visualize = ibvs.visualisation:main',
             'ibvs = ibvs.ibvs:main',
             'heave_trim = ibvs.heave_trim:main',
