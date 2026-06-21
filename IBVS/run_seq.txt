@@ -14,7 +14,7 @@ ros2 launch realsense2_camera rs_launch.py
 
 2. Cmd MAVROS
 ros2 launch mavros apm.launch fcu_url:="serial:///dev/ttyACM0:921600" gcs_url:="udp://@192.168.4.1:14550"
-ros2 launch mavros apm.launch fcu_url:=“serial:///dev/ttyACM0:921600” gcs_url:="udp://@192.168.2.1:14550"
+ros2 launch mavros apm.launch fcu_url:="serial:///dev/ttyACM0:921600" gcs_url:="udp://@192.168.2.1:14550"
 
 3. Cmd IBVS Parameter
 ros2 run ibvs heave_trim
