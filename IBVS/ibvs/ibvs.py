@@ -41,8 +41,8 @@ class IBVSRCController(Node):
         self.v_dot = None
         self.last_time = None
 
-        self.declare_parameter("Kp", [0.7,0.7,0.5,0.5,1.2,0.5])
-        self.declare_parameter("Ki", [0.0,0.0,0.0,0.0,0.2,0.0])
+        self.declare_parameter("Kp", [0.7,0.7,0.5,0.5,1.2,0.5]) # Sway - Heave - Surge - Pitch - Yaw - Roll
+        self.declare_parameter("Ki", [0.0,0.0,0.0,0.0,0.2,0.0]) # Sway - Heave - Surge - Pitch - Yaw - Roll
         
         self.Kp = np.array(self.get_parameter("Kp").value)
         self.Ki = np.array(self.get_parameter("Ki").value)
