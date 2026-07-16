@@ -25,9 +25,8 @@ P_CB_Z =  0.015
 
 
 # --- IBVS Control Parameters ---
-# Kp = np.array([0.6, 0.6, 0.5, 0.0, 0.3, 0.0]) # Surge - Sway - Heave - Roll - Pitch - Yaw
-# Kd = np.array([0.2, 0.2, 0.2, 0.0, 0.05, 0.0])
-# Ki = np.array([0.08, 0.08, 0.08, 0.0, 0.05, 0.0])
+# Kp = np.array([0.6, 0.6, 0.5, 0.0, 0.3, 0.0])         # Sway - Heave - Surge - Pitch - Yaw - Roll
+# Ki = np.array([0.08, 0.08, 0.08, 0.0, 0.05, 0.0])     # Sway - Heave - Surge - Pitch - Yaw - Roll
 
 mu = 0.2
 Z_DES = 1.5
