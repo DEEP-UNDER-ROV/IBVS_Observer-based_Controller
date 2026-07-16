@@ -65,7 +65,8 @@ class IBVSRCController(Node):
 
         self.desired_pts = self.compute_desired_corners(Z_DES)
 
-    # =========================================================
+    # Order 3 - 2 
+    #       0 - 1
     def compute_desired_corners(self, Z_des):
         half = TAG_SIZE / 2.0
         corners = np.array([
@@ -76,6 +77,20 @@ class IBVSRCController(Node):
         ])
         desired = corners / Z_des
         return desired
+
+    # # Order 0 - 1 
+    # #       3 - 2
+    # def compute_desired_corners(self, Z_des):
+    #     half = TAG_SIZE / 2.0
+    #     corners = np.array([
+    #         [-half,  half],
+    #         [ half,  half],
+    #         [ half, -half],
+    #         [-half, -half],
+    #     ])
+    #     desired = corners / Z_des
+    #     return desired
+
 
     # =========================================================
     def reorder_corners_ccw(self, pts):
@@ -169,7 +184,7 @@ class IBVSRCController(Node):
         b = L.T @ e
         v_raw = -np.linalg.solve(A, b).flatten()
         
-        # ----------- Initialize PID states -----------
+        # ----------- Initialize PI states ------------
         if self.v_prev is None:
             self.v_prev = np.zeros(6)
             self.v_integral = np.zeros(6)
@@ -258,7 +273,7 @@ class IBVSRCController(Node):
         pwm[5] = self.vel_to_pwm(Vb[1], K_SWAY)
         pwm[2] = self.vel_to_pwm(Vb[2], K_HEAVE, HEAVE_BIAS)
         pwm[1] = self.vel_to_pwm(Wb[0], K_ROLL)
-        pwm[0] = self.vel_to_pwm(Wb[1], K_PITCH)
+        pwm[0] = self.vel_to_pwm(-Wb[1], K_PITCH)
         pwm[3] = self.vel_to_pwm(Wb[2], K_YAW)
 
         self.current_pwm = pwm 
