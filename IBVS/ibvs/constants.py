@@ -13,10 +13,15 @@ stream_w = 848
 stream_h = 480
 
 
-# --- ASEPP Physical Offsets (Camera relative to CoG) ---
-P_CB_X = 0.17
-P_CB_Y = -0.0475
-P_CB_Z = 0.0
+# # --- ASEPP Physical Offsets (Camera relative to CoG) ---
+# P_CB_X =  0.17
+# P_CB_Y = -0.0475
+# P_CB_Z =  0.0
+
+# --- SUPRI Physical Offsets (Camera relative to CoG) ---
+P_CB_X =  0.210
+P_CB_Y = -0.010
+P_CB_Z =  0.015
 
 
 # --- IBVS Control Parameters ---
@@ -30,18 +35,18 @@ TAG_SIZE = 0.2065
 PATCH = 2
 
 # ---------------- Gains (TUNE IN WATER) ----------------
-K_SURGE = 400
-K_SWAY  = 400
-K_HEAVE = 400
-K_ROLL = 400
-K_PITCH = 400
-K_YAW   = 400
-HEAVE_BIAS = 20
+K_SURGE = 800
+K_SWAY  = 800
+K_HEAVE = 800
+K_ROLL  = 800
+K_PITCH = 800
+K_YAW   = 800
+HEAVE_BIAS = -40
 
 
 # --- Velocity Limits ---
-MAX_LIN_VEL = 0.2
-MAX_ANG_VEL = 0.08
+MAX_LIN_VEL = 0.3
+MAX_ANG_VEL = 0.1
 
 
 # --- QGC Port Configuration ---
