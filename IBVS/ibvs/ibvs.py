@@ -41,8 +41,8 @@ class IBVSRCController(Node):
         self.v_dot = None
         self.last_time = None
 
-        self.declare_parameter("Kp", [0.7,0.7,0.5,0.5,1.2,0.5]) # Sway - Heave - Surge - Pitch - Yaw - Roll
-        self.declare_parameter("Ki", [0.0,0.0,0.0,0.0,0.2,0.0]) # Sway - Heave - Surge - Pitch - Yaw - Roll
+        self.declare_parameter("Kp", [0.7,0.4,0.7,0.2,0.4,0.2]) # Sway - Heave - Surge - Pitch - Yaw - Roll
+        self.declare_parameter("Ki", [0.0,0.0,0.0,0.0,0.0,0.0]) # Sway - Heave - Surge - Pitch - Yaw - Roll
         
         self.Kp = np.array(self.get_parameter("Kp").value)
         self.Ki = np.array(self.get_parameter("Ki").value)
@@ -135,6 +135,41 @@ class IBVSRCController(Node):
         return int(np.clip(1500 + gain * v + bias, 1100, 1900))
 
     # =========================================================
+    # def cb_corners(self, msg):
+    #     if len(msg.polygon.points) != 4:
+    #         return
+
+    #     self.last_tag_time = self.get_clock().now()
+    #     self.tag_lost = False
+
+    #     rows = []
+    #     errs = []
+    #     pixel_err = []
+
+    #     pts = np.array([[p.x, p.y, p.z] for p in msg.polygon.points])
+    #     # pts = self.reorder_corners_ccw(pts)
+    #     for i in range(4):
+    #         x, y, Z = pts[i]
+    #         if Z <= 0:
+    #             return
+            
+    #         # Desired normalized
+    #         xd, yd = self.desired_pts[i]
+            
+    #         # Build interaction matrix using normalized coords
+    #         rows.append(self.interaction_matrix(x, y, Z))
+            
+    #         # Error vector
+    #         z_norm = (Z - Z_DES) / Z_DES
+    #         errs.extend([x - xd, y - yd, z_norm])
+            
+    #         # Stop condition error
+    #         pixel_err.extend([x - xd, y - yd])
+            
+    #     L = np.vstack(rows)
+    #     e = np.array(errs).reshape(-1, 1)
+
+
     def cb_corners(self, msg):
         if len(msg.polygon.points) != 4:
             return
@@ -147,19 +182,25 @@ class IBVSRCController(Node):
         pixel_err = []
 
         pts = np.array([[p.x, p.y, p.z] for p in msg.polygon.points])
-        pts = self.reorder_corners_ccw(pts)
+        
         for i in range(4):
-            x, y, Z = pts[i]
+            X_m, Y_m, Z = pts[i] # X_m and Y_m are in meters
             if Z <= 0:
                 return
             
-            # Desired normalized
+            # --- CONVERT TO NORMALIZED IMAGE COORDINATES ---
+            Y_m = -Y_m
+
+            x = X_m / Z
+            y = Y_m / Z
+            
+            # Desired normalized coordinates
             xd, yd = self.desired_pts[i]
             
-            # Build interaction matrix using normalized coords
+            # Build interaction matrix using properly normalized coords
             rows.append(self.interaction_matrix(x, y, Z))
             
-            # Error vector
+            # Error vector (both terms are now normalized and dimensionless)
             z_norm = (Z - Z_DES) / Z_DES
             errs.extend([x - xd, y - yd, z_norm])
             
@@ -204,7 +245,7 @@ class IBVSRCController(Node):
         self.v_prev = v_raw
 
         pixel_err_magnitude = np.abs(pixel_err)
-        if np.max(pixel_err_magnitude) < 0.005:
+        if np.max(pixel_err_magnitude) < 0.01:
             Vc[:] = 0.0
 
         Vc[0:3] = np.clip(Vc[0:3], -MAX_LIN_VEL, MAX_LIN_VEL)
@@ -239,8 +280,8 @@ class IBVSRCController(Node):
         vel_body_msg.header.frame_id = "body"
         
         vel_body_msg.twist.linear.x = float(Vb[0])
-        vel_body_msg.twist.linear.y = float(Vb[1])
-        vel_body_msg.twist.linear.z = float(Vb[2])
+        vel_body_msg.twist.linear.y = float(-Vb[1])
+        vel_body_msg.twist.linear.z = float(-Vb[2])
         vel_body_msg.twist.angular.x = float(Wb[0])
         vel_body_msg.twist.angular.y = float(Wb[1])
         vel_body_msg.twist.angular.z = float(Wb[2])
@@ -265,6 +306,8 @@ class IBVSRCController(Node):
             f"Yaw = {Wb[2]}",
             throttle_duration_sec=0.5
         )
+
+        # self.get_logger().info(f"Corners: {pts}")
 
         # -------- Compute PWM --------
         pwm = [1500] * 18
