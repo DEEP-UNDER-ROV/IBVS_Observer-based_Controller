@@ -1,11 +1,10 @@
-#IBVS Z_err Normalized
-
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 import numpy as np
 
+from apriltag_msgs.msg import AprilTagDetectionArray
 from geometry_msgs.msg import PolygonStamped, TwistStamped
 from std_msgs.msg import Float32MultiArray, Int16MultiArray
 from mavros_msgs.msg import OverrideRCIn
@@ -22,6 +21,7 @@ class IBVSRCController(Node):
 
         # ---------------- Subscribers ----------------
         self.sub_corners = self.create_subscription(PolygonStamped, "/apriltag/corners", self.cb_corners,qos_profile_sensor_data)
+        self.sub_detection = self.create_subscription(AprilTagDetectionArray,"/detection1",self.cb_detection,10)
 
         # ---------------- Publishers ----------------
         self.rc_override_pub = self.create_publisher(OverrideRCIn, "/mavros/rc/override", 10)
@@ -33,16 +33,32 @@ class IBVSRCController(Node):
         # ---------------- State ----------------
         self.current_pwm = [1500] * 18
         self.depth_img = None
+        self.detected_uv = None
         self.last_tag_time = None
         
-        # PID state
-        self.v_prev = None
-        self.v_integral = None
-        self.v_dot = None
+        # PI or SMC controller state
+        self.e_integral = None
+        self.ev_integral = None
         self.last_time = None
+        self.sta_state = None
 
-        self.declare_parameter("Kp", [0.7,0.4,0.7,0.2,0.4,0.2]) # Sway - Heave - Surge - Pitch - Yaw - Roll
-        self.declare_parameter("Ki", [0.0,0.0,0.0,0.0,0.0,0.0]) # Sway - Heave - Surge - Pitch - Yaw - Roll
+
+        ##Tuneable Variables
+        self.HEAVE_BIAS = 0        
+        self.lambda_smc = 2.0          # Sliding surface parameter = to lambda gain in PI
+        self.phi = 0.02                # Boundary layer thickness
+
+        # Sliding gains 
+        # Higher gain produces faster convergence but more chattering, lower gain produce smooth motion, same like \mu in DLS
+        self.Ks = np.diag([0.8, 0.8, 0.8, 0.0, 0.3, 0.0])
+
+        # K1 act like P gain, K2 act like disturbance estimator
+        self.K1 = np.diag([0.9, 0.9, 0.9, 0.0, 0.35, 0.0])
+        self.K2 = np.diag([0.25, 0.25, 0.25, 0.0, 0.08, 0.0])
+
+                            # Sway - Heave - Surge - Pitch - Yaw - Roll
+        self.declare_parameter("Kp", [0.1,0.5,0.3,0.7,0.3,0.7]) 
+        self.declare_parameter("Ki", [0.0,0.03,0.0,0.0,0.03,0.0])
         
         self.Kp = np.array(self.get_parameter("Kp").value)
         self.Ki = np.array(self.get_parameter("Ki").value)
@@ -63,54 +79,99 @@ class IBVSRCController(Node):
         self.create_timer(1.0/25.0, self.publish_rc)
         self.get_logger().info("IBVS Control Active")
 
-        self.desired_pts = self.compute_desired_corners(Z_DES)
+        self.desired_pts = self.compute_desired_corners_pixel(Z_DES)
 
-    # Order 3 - 2 
-    #       0 - 1
-    def compute_desired_corners(self, Z_des):
-        half = TAG_SIZE / 2.0
-        corners = np.array([
-            [-half, -half],
-            [ half, -half],
-            [ half,  half],
-            [-half,  half],
-        ])
-        desired = corners / Z_des
-        return desired
 
-    # # Order 0 - 1 
-    # #       3 - 2
-    # def compute_desired_corners(self, Z_des):
+    # # =========================================================
+    # def compute_desired_corners(self, Z_DES):
     #     half = TAG_SIZE / 2.0
     #     corners = np.array([
-    #         [-half,  half],
-    #         [ half,  half],
-    #         [ half, -half],
     #         [-half, -half],
+    #         [ half, -half],
+    #         [ half,  half],
+    #         [-half,  half],
     #     ])
-    #     desired = corners / Z_des
+    #     desired = corners / Z_DES
     #     return desired
+    
+    # =========================================================
+    # # Compute desired using u,v in /detection1/
+    # # def compute_desired_corners(self, FX, FY, CX, CY):
+    # def compute_desired_corners(self, Z_DES):
 
+    #     half = TAG_SIZE/2
+
+    #     corners = np.array([
+    #         [-half, half, Z_DES],
+    #         [ half, half, Z_DES],
+    #         [ half,-half, Z_DES],
+    #         [-half,-half, Z_DES],
+    #     ])
+
+    #     desired = []
+
+    #     for X,Y,Z in corners:
+
+    #         u = FX * X/Z + CX
+    #         v = FY * Y/Z + CY
+
+    #         desired.append([u,v])
+
+    #     return np.array(desired)
 
     # =========================================================
-    def reorder_corners_ccw(self, pts):
-        pts = np.array(pts)
+    def compute_desired_corners_pixel(self, Z_DES):
+        half = TAG_SIZE / 2.0
+
+        # Tag corners in tag frame (meters)
+        corners = np.array([
+            [-half,  half],   # top-left
+            [ half,  half],   # top-right
+            [ half, -half],   # bottom-right
+            [-half, -half],   # bottom-left
+        ])
+
+        # Normalize
+        x = corners[:, 0] / Z_DES
+        y = corners[:, 1] / Z_DES
+
+        # Convert to pixels
+        u = FX * x + CX
+        v = FY * y + CY
+
+        desired_pixels = np.column_stack((u, v))
+
+        return desired_pixels
+
+    # # =========================================================
+    # def interaction_matrix(self, x, y, Z):
+    #     return np.array([
+    #         [-1/Z,  0,    x/Z,      x*y,     -(1 + x*x),  y],
+    #         [0,    -1/Z,  y/Z,    1 + y*y,      -x*y,    -x],
+    #         [0,     0, -1/Z_DES, -y*Z/Z_DES,  x*Z/Z_DES,  0]
+    #     ])
     
-        cx = np.mean(pts[:,0])
-        cy = np.mean(pts[:,1])
-    
-        angles = np.arctan2(pts[:,1] - cy, pts[:,0] - cx)
-        order = np.argsort(angles)
-    
-        pts = pts[order]
-    
-        # rotate so first point is bottom-left
-        idx = np.argmin(pts[:,0] + pts[:,1])
-        pts = np.roll(pts, -idx, axis=0)
-        return pts
+    # # =========================================================
+    # # Compute L matrix using u,v in /detection1/ 
+    # def interaction_matrix_pixel(self, u, v, Z):
+
+    #     du = u - CX
+    #     dv = v - CY
+
+    #     return np.array([
+
+    #         [-FX/Z, 0,     du/Z,     du*dv/FY,         -(FX+du**2/FX),  FX*dv/FY],
+
+    #         [0,     -FY/Z, dv/Z,     FY+dv**2/FY,      -du*dv/FX,       -FY*du/FX],
+
+    #         [0,     0,     -1/Z_DES, -Z*dv/(FY*Z_DES), Z*du/(FX*Z_DES), 0]
+    #     ])
 
     # =========================================================
-    def interaction_matrix(self, x, y, Z):
+    def interaction_matrix_pixel(self, u, v, Z):
+        x = (u - CX) / FX
+        y = (v - CY) / FY
+
         return np.array([
             [-1/Z,  0,    x/Z,      x*y,     -(1 + x*x),  y],
             [0,    -1/Z,  y/Z,    1 + y*y,      -x*y,    -x],
@@ -133,44 +194,31 @@ class IBVSRCController(Node):
     # =========================================================
     def vel_to_pwm(self, v, gain, bias=0):
         return int(np.clip(1500 + gain * v + bias, 1100, 1900))
+    
+    # =========================================================
+    def cb_detection(self, msg):
+
+        self.get_logger().info(
+            f"detection_uv:\n{self.detected_uv}",
+            throttle_duration_sec=1.0
+        )
+
+        if len(msg.detections) == 0:
+            self.detected_uv = None
+            return
+
+        det = msg.detections[0]
+
+        self.detected_uv = np.array(
+            [[c.x, c.y] for c in det.corners],
+            dtype=np.float64
+        )
 
     # =========================================================
-    # def cb_corners(self, msg):
-    #     if len(msg.polygon.points) != 4:
-    #         return
-
-    #     self.last_tag_time = self.get_clock().now()
-    #     self.tag_lost = False
-
-    #     rows = []
-    #     errs = []
-    #     pixel_err = []
-
-    #     pts = np.array([[p.x, p.y, p.z] for p in msg.polygon.points])
-    #     # pts = self.reorder_corners_ccw(pts)
-    #     for i in range(4):
-    #         x, y, Z = pts[i]
-    #         if Z <= 0:
-    #             return
-            
-    #         # Desired normalized
-    #         xd, yd = self.desired_pts[i]
-            
-    #         # Build interaction matrix using normalized coords
-    #         rows.append(self.interaction_matrix(x, y, Z))
-            
-    #         # Error vector
-    #         z_norm = (Z - Z_DES) / Z_DES
-    #         errs.extend([x - xd, y - yd, z_norm])
-            
-    #         # Stop condition error
-    #         pixel_err.extend([x - xd, y - yd])
-            
-    #     L = np.vstack(rows)
-    #     e = np.array(errs).reshape(-1, 1)
-
-
     def cb_corners(self, msg):
+        if self.detected_uv is None:
+            return
+    
         if len(msg.polygon.points) != 4:
             return
 
@@ -179,34 +227,33 @@ class IBVSRCController(Node):
 
         rows = []
         errs = []
-        pixel_err = []
+        pixel_norm = []
+        measured_pts = []
 
         pts = np.array([[p.x, p.y, p.z] for p in msg.polygon.points])
-        
-        for i in range(4):
-            X_m, Y_m, Z = pts[i] # X_m and Y_m are in meters
-            if Z <= 0:
-                return
-            
-            # --- CONVERT TO NORMALIZED IMAGE COORDINATES ---
-            Y_m = -Y_m
 
-            x = X_m / Z
-            y = Y_m / Z
-            
-            # Desired normalized coordinates
-            xd, yd = self.desired_pts[i]
-            
-            # Build interaction matrix using properly normalized coords
-            rows.append(self.interaction_matrix(x, y, Z))
-            
-            # Error vector (both terms are now normalized and dimensionless)
+        self.get_logger().info(
+            f"polygon:\n{pts}",
+            throttle_duration_sec=1.0
+        )
+
+        # Function to use the pixel error from left_cam instead of norm error
+        for i in range(4):
+            u,v = self.detected_uv[i]
+            Z = pts[i,2]
+
+            # v = -v
+
+            ud,vd = self.desired_pts[i]
+            rows.append(self.interaction_matrix_pixel(u,v,Z))
+
+            measured_pts.append([u, v])
+
             z_norm = (Z - Z_DES) / Z_DES
-            errs.extend([x - xd, y - yd, z_norm])
-            
-            # Stop condition error
-            pixel_err.extend([x - xd, y - yd])
-            
+
+            errs.extend([u-ud, v-vd, z_norm])
+            pixel_norm.extend([u - ud, v - vd])
+                    
         L = np.vstack(rows)
         e = np.array(errs).reshape(-1, 1)
 
@@ -220,33 +267,57 @@ class IBVSRCController(Node):
         
         self.last_time = now
 
-        # ------------ Solve IBVS velocity ------------
+        # ------- Solve pseudo-inverse term ----------
         A = L.T @ L + mu**2 * np.eye(6)
-        b = L.T @ e
-        v_raw = -np.linalg.solve(A, b).flatten()
-        
-        # ----------- Initialize PI states ------------
-        if self.v_prev is None:
-            self.v_prev = np.zeros(6)
-            self.v_integral = np.zeros(6)
-            self.v_dot = np.zeros(6)
-        
-        # ------------- PID terms Integral -------------
-        self.v_integral += v_raw * dt
-        self.v_integral = np.clip(self.v_integral, -0.2, 0.2)
 
-        # ------------ PID terms Derivative ------------
-        alpha = 0.7
-        v_dot_raw = (v_raw - self.v_prev) / dt
-        self.v_dot = alpha * self.v_dot + (1 - alpha) * v_dot_raw
-        
-        # ----------------- PID Control -----------------
-        Vc = (self.Kp_mat @ v_raw) + (self.Ki_mat @ self.v_integral)
-        self.v_prev = v_raw
+        L_pinv = np.linalg.pinv(L)
+        e_v = L_pinv @ e
 
-        pixel_err_magnitude = np.abs(pixel_err)
-        if np.max(pixel_err_magnitude) < 0.01:
-            Vc[:] = 0.0
+        # ------- Initialize PI or SMC states ---------
+        if self.e_integral is None:
+            self.e_integral = np.zeros_like(e)
+
+        if self.ev_integral is None:
+            self.ev_integral = np.zeros_like(e_v)
+
+        # ---------- Integral of image error ---------- anti windup cek lgi
+        self.e_integral += e * dt
+        self.e_integral = np.clip(self.e_integral, -0.3, 0.3)
+
+        self.ev_integral += e_v * dt
+        self.ev_integral = np.clip(self.ev_integral, -0.3, 0.3)
+
+        # # ----- First Order SMC Control Law -----
+        # s = e_v + self.lambda_smc * self.ev_integral
+        # sat = np.clip(s / self.phi, -1.0, 1.0)
+        # Vc = - (self.lambda_smc * e_v + self.Ks @ sat)
+
+
+        # # ----- Second Order SMC Control Law -----
+        # s = e_v + self.lambda_smc * self.ev_integral
+        # if self.sta_state is None:
+        #     self.sta_state = np.zeros_like(e_v)
+
+        # sign_s = np.sign(s)
+        # self.sta_state += sign_s * dt
+
+        # sqrt_s = np.sqrt(np.abs(s) + 1e-8)
+
+        # Vc = -(self.lambda_smc * e_v + self.K1 @ (sqrt_s * sign_s) + self.K2 @ self.sta_state)
+
+
+        # # ------------ PI Control Law ------------
+        # b_p = L.T @ e
+        # b_i = L.T @ self.e_integral
+
+        # v_p = np.linalg.solve(A, b_p).flatten()
+        # v_i = np.linalg.solve(A, b_i).flatten()
+
+        # Vc = -(self.Kp_mat @ v_p + self.Ki_mat @ v_i)
+
+        # dead_band = np.abs(pixel_norm)
+        # if np.max(dead_band) < 5.0:
+        #     Vc[:] = 0.0
 
         Vc[0:3] = np.clip(Vc[0:3], -MAX_LIN_VEL, MAX_LIN_VEL)
         Vc[3:6] = np.clip(Vc[3:6], -MAX_ANG_VEL, MAX_ANG_VEL)
@@ -257,8 +328,8 @@ class IBVSRCController(Node):
         v_c = v_c.reshape(3,)
         w_c = w_c.reshape(3,)
         
-        Wb = (R_CB @ w_c).reshape(3,)
-        Vb = (R_CB @ v_c).reshape(3,) + np.cross(Wb, P_CB.reshape(3,))
+        Wb = (R_BC @ w_c).reshape(3,)
+        Vb = (R_BC @ v_c).reshape(3,) + np.cross(Wb, P_BC.reshape(3,))
         Vb[2] = -Vb[2]
 
         # ------------- ROS2 MSG VCam -------------
@@ -280,30 +351,30 @@ class IBVSRCController(Node):
         vel_body_msg.header.frame_id = "body"
         
         vel_body_msg.twist.linear.x = float(Vb[0])
-        vel_body_msg.twist.linear.y = float(-Vb[1])
-        vel_body_msg.twist.linear.z = float(-Vb[2])
+        vel_body_msg.twist.linear.y = float(Vb[1])
+        vel_body_msg.twist.linear.z = float(Vb[2])
         vel_body_msg.twist.angular.x = float(Wb[0])
         vel_body_msg.twist.angular.y = float(Wb[1])
         vel_body_msg.twist.angular.z = float(Wb[2])
         self.vel_body_pub.publish(vel_body_msg)
 
         # self.get_logger().info(
-        #     f"Cam_PosX = {Vc[0]} |"
-        #     f"Cam_PosY = {Vc[1]} |"
-        #     f"Cam_PosZ = {Vc[2]} |"
-        #     f"Cam_RotX = {Vc[3]} |"
-        #     f"Cam_RotY = {Vc[4]} |"
-        #     f"Cam_RotZ = {Vc[5]} |",
+        #     f"Cam_PosX = {Vc[0]:.3f} |"
+        #     f"Cam_PosY = {Vc[1]:.3f} |"
+        #     f"Cam_PosZ = {Vc[2]:.3f} |"
+        #     f"Cam_RotX = {Vc[3]:.3f} |"
+        #     f"Cam_RotY = {Vc[4]:.3f} |"
+        #     f"Cam_RotZ = {Vc[5]:.3f} |",
         #     throttle_duration_sec=0.5
         # )
         
         self.get_logger().info(
-            f"Surge = {Vb[0]} |"
-            f"Sway = {Vb[1]} |"
-            f"Heave = {Vb[2]} |"
-            f"Roll = {Wb[0]}"
-            f"Pitch = {Wb[1]}"
-            f"Yaw = {Wb[2]}",
+            f"Surge = {Vb[0]:.3f} |"
+            f"Sway = {Vb[1]:.3f} |"
+            f"Heave = {Vb[2]:.3f} |"
+            f"Roll = {Wb[0]:.3f} |"
+            f"Pitch = {Wb[1]:.3f} |"
+            f"Yaw = {Wb[2]:.3f} ",
             throttle_duration_sec=0.5
         )
 
@@ -314,9 +385,9 @@ class IBVSRCController(Node):
         
         pwm[4] = self.vel_to_pwm(Vb[0], K_SURGE)
         pwm[5] = self.vel_to_pwm(Vb[1], K_SWAY)
-        pwm[2] = self.vel_to_pwm(Vb[2], K_HEAVE, HEAVE_BIAS)
+        pwm[2] = self.vel_to_pwm(Vb[2], K_HEAVE, self.HEAVE_BIAS)
         pwm[1] = self.vel_to_pwm(Wb[0], K_ROLL)
-        pwm[0] = self.vel_to_pwm(-Wb[1], K_PITCH)
+        pwm[0] = self.vel_to_pwm(Wb[1], K_PITCH)
         pwm[3] = self.vel_to_pwm(Wb[2], K_YAW)
 
         self.current_pwm = pwm 
@@ -330,11 +401,40 @@ class IBVSRCController(Node):
             f"Surge(RC5) = {pwm[4]} |"
             f"Sway(RC6) = {pwm[5]} |"
             f"Heave(RC3) = {pwm[2]} |"
-            f"Roll(RC2) = {pwm[1]}"
-            f"Pitch(RC1) = {pwm[0]}"
+            f"Roll(RC2) = {pwm[1]} |"
+            f"Pitch(RC1) = {pwm[0]} |"
             f"Yaw(RC4) = {pwm[3]}",
             throttle_duration_sec=0.5
         )
+
+        # self.get_logger().info(
+        #     f"x={x:.3f} "
+        #     f"xd={xd:.3f} "
+        #     f"err={x-xd:.3f} "
+        #     f"Z={Z:.3f}",
+        #     throttle_duration_sec=0.2
+        # )
+        
+        # self.get_logger().info(
+        #     f"||e||={np.linalg.norm(e):.4f}, "
+        #     f"||LTe||={np.linalg.norm(L.T @ e):.4f}",
+        #     throttle_duration_sec=0.2
+        # )
+
+        # measured_pts = np.array(measured_pts)
+        # self.get_logger().info(
+        #     f"\nMeasured:\n{np.round(measured_pts, 3)}"
+        #     f"\nDesired:\n{np.round(self.desired_pts, 3)}",
+        #     throttle_duration_sec=0.5
+        # )
+
+        for i, (m, d) in enumerate(zip(measured_pts, self.desired_pts)):
+            self.get_logger().info(
+                f"P{i+1}: "
+                f"M=({m[0]:.3f}, {m[1]:.3f}) "
+                f"D=({d[0]:.3f}, {d[1]:.3f})",
+                throttle_duration_sec=0.5
+            )
 
         err_msg = Float32MultiArray()
         err_msg.data = np.array(e, dtype=np.float32).flatten().tolist()
@@ -357,13 +457,18 @@ class IBVSRCController(Node):
         if dt > self.TAG_TIMEOUT:
             if not self.tag_lost:
                 self.tag_lost = True
-                self.get_logger().warn("AprilTag LOST → Neutral RC")
-                self.e_prev = None
+                self.get_logger().warn("AprilTag LOST")
                 self.e_integral = None
                 self.last_time = None
             
-            # Only reset to neutral IF the tag is actually lost
+        #     # Only reset to neutral IF the tag is actually lost
             self.current_pwm = [1500] * 18
+            self.current_pwm[2] = 1500 + 100      # RC3 (Heave), +200 bias
+
+            self.get_logger().info(
+            f"Tag lost: Heave PWM = {self.current_pwm[2]}",
+            throttle_duration_sec=0.5
+        )
 
 # =============================================================
 def main():
