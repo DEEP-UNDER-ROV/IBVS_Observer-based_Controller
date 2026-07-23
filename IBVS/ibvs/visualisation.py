@@ -20,39 +20,19 @@ class IBVS_Telemetry(Node):
         half = TAG_SIZE / 2.0
     
         corners_3d = np.array([
-            [-half, -half, Z_des],
-            [ half, -half, Z_des],
-            [ half,  half, Z_des],
             [-half,  half, Z_des],
+            [ half,  half, Z_des],
+            [ half, -half, Z_des],
+            [-half, -half, Z_des],
         ])
     
         desired = np.zeros((4,2), dtype=np.float32)
     
         for i,(X,Y,Z) in enumerate(corners_3d):
-            desired[i] = [X/Z, Y/Z]   # normalized coordinates
-    
+            desired[i] = [X/Z, Y/Z]   # normalized coordinates    
+            
         return desired
-    
-    def reorder_corners_ccw(self, pts):
-        pts = np.asarray(pts, dtype=np.float32)
 
-        # compute centroid
-        center = np.mean(pts, axis=0)
-
-        # compute angle of each point w.r.t centroid
-        angles = np.arctan2(pts[:,1] - center[1],
-                            pts[:,0] - center[0])
-
-        # sort by angle (CCW)
-        sort_idx = np.argsort(angles)
-        pts_sorted = pts[sort_idx]
-
-        # ensure starting point is top-left
-        s = pts_sorted.sum(axis=1)
-        top_left_idx = np.argmin(s)
-        pts_sorted = np.roll(pts_sorted, -top_left_idx, axis=0)
-
-        return pts_sorted
 
     def __init__(self):
         super().__init__("IBVS_Telemetry")
@@ -133,7 +113,10 @@ class IBVS_Telemetry(Node):
         det = msg.detections[0]
     
         pts = np.array([[c.x, c.y] for c in det.corners], dtype=np.float32)
-        self.detected_corners = self.reorder_corners_ccw(pts)
+        self.detected_corners = np.array(
+            [[c.x, c.y] for c in det.corners],
+            dtype=np.float32
+        )
     
     # ---------------- Callbacks for subscribed image + corners ----------------
     def cb_corners(self, msg):
@@ -171,23 +154,60 @@ class IBVS_Telemetry(Node):
             u = FX * xd + CX
             v = FY * yd + CY
             desired_pixels[i] = [u,v]
-        
+
+        ##Draw no index         
+        # desired_draw = desired_pixels.astype(np.int32).reshape(-1,1,2)
+        # cv2.polylines(stream, [desired_draw], True, (0, 0, 255), 2)
+
+        #Draw Index for desired corner
         desired_draw = desired_pixels.astype(np.int32).reshape(-1,1,2)
         cv2.polylines(stream, [desired_draw], True, (0, 0, 255), 2)
+
+        # # Draw desired corner numbers
+        # for i, (u, v) in enumerate(desired_pixels.astype(np.int32)):
+        #     cv2.circle(stream, (u, v), 4, (0, 0, 255), -1)
+        #     cv2.putText(
+        #         stream,
+        #         str(i),
+        #         (u + 8, v - 8),
+        #         cv2.FONT_HERSHEY_SIMPLEX,
+        #         0.6,
+        #         (0, 0, 255),
+        #         2)
 
         if self.detected_corners is not None:
             pts = self.detected_corners.reshape((-1,1,2)).astype(np.int32)
             cv2.polylines(stream,[pts],True,(0,255,0),2)
 
-        # if undistorted_pts is not None:
-        #     pts_u = np.asarray(undistorted_pts).reshape(-1, 2)
-        #     pts_u_draw = (pts_u * [sx, sy]).astype(np.int32)
-        #     cv2.polylines(stream, [pts_u_draw], True, (0, 255, 0), 2)
+            # # Draw detected corner numbers
+            # for i, p in enumerate(self.detected_corners.astype(np.int32)):
+            #     u, v = p
+            #     cv2.circle(stream, (u, v), 4, (0,255,0), -1)
+            #     cv2.putText(
+            #         stream,
+            #         str(i),
+            #         (u + 8, v - 8),
+            #         cv2.FONT_HERSHEY_SIMPLEX,
+            #         0.6,
+            #         (0,255,0),
+            #         2
+            #     )
 
         if raw_pts is not None:
             pts_r = np.asarray(raw_pts).reshape(-1, 2)
             pts_r_draw = (pts_r * [sx, sy]).astype(np.int32)
             cv2.polylines(stream, [pts_r_draw], True, (0, 180, 180), 1)
+
+            # for i, (u, v) in enumerate(pts_r_draw):
+            #     cv2.putText(
+            #         stream,
+            #         f"R{i}",
+            #         (u + 8, v + 15),
+            #         cv2.FONT_HERSHEY_SIMPLEX,
+            #         0.45,
+            #         (0,180,180),
+            #         1
+            #     )
 
         # --- Error Overlay ---
         if self.current_err is not None:
@@ -197,16 +217,16 @@ class IBVS_Telemetry(Node):
             if num_elements == 12:
                 for i in range(4):
                     ex, ey, ez = e[i*3:(i+1)*3]
-                    cv2.putText(stream, f"P{i+1}: ex={ex:+.2f}px  ey={ey:+.2f}px  ez={ez:+.2f}",
+                    cv2.putText(stream, f"P{i+1}: ex={ex:+.2f}px  ey={ey:+.2f}px  ez={ez:+.2f}m",
                                 (x0, y0 + i * dy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
-            elif num_elements == 3:
-                ex, ey, ez = e
-                cv2.putText(stream, f"Center Err: X:{ex:+.2f} Y:{ey:+.2f} Z:{ez:+.2f}",
-                            (x0, y0), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
-            elif num_elements == 2:
-                ex, ey = e
-                cv2.putText(stream, f"Center Err: X:{ex:+.2f} Y:{ey:+.2f}",
-                            (x0, y0), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+            # elif num_elements == 3:
+            #     ex, ey, ez = e
+            #     cv2.putText(stream, f"Center Err: X:{ex:+.2f} Y:{ey:+.2f} Z:{ez:+.2f}",
+            #                 (x0, y0), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+            # elif num_elements == 2:
+            #     ex, ey = e
+            #     cv2.putText(stream, f"Center Err: X:{ex:+.2f} Y:{ey:+.2f}",
+            #                 (x0, y0), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
 
         # RC inputs
         if self.current_rc is not None:
@@ -215,8 +235,8 @@ class IBVS_Telemetry(Node):
             cv2.putText(stream, f"Sway  :{rc.channels[5]:+.2f}", (20,170), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
             cv2.putText(stream, f"Heave :{rc.channels[2]:+.2f}", (20,190), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
             cv2.putText(stream, f"Yaw   :{rc.channels[3]:+.2f}", (20,210), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"Pitch :{rc.channels[1]:+.2f}", (20,230), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"Roll  :{rc.channels[6]:+.2f}", (20,250), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Pitch :{rc.channels[0]:+.2f}", (20,230), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Roll  :{rc.channels[1]:+.2f}", (20,250), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
 
         # Push to QGC
         self.video_writer.write(stream)
