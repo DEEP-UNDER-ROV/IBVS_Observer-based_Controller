@@ -19,14 +19,10 @@ stream_h = 480
 # P_CB_Z =  0.0
 
 # --- SUPRI Physical Offsets (Camera relative to CoG) ---
-P_CB_X =  0.210
-P_CB_Y = -0.010
-P_CB_Z =  0.015
-
-
-# --- IBVS Control Parameters ---
-# Kp = np.array([0.6, 0.6, 0.5, 0.0, 0.3, 0.0])         # Sway - Heave - Surge - Pitch - Yaw - Roll
-# Ki = np.array([0.08, 0.08, 0.08, 0.0, 0.05, 0.0])     # Sway - Heave - Surge - Pitch - Yaw - Roll
+P_IC = np.array([
+    0.19661243,
+    0.06773711,
+   -0.00951116])
 
 mu = 0.2
 Z_DES = 1.5
@@ -34,18 +30,17 @@ TAG_SIZE = 0.2065
 PATCH = 2
 
 # ---------------- Gains (TUNE IN WATER) ----------------
-K_SURGE = 800
-K_SWAY  = 800
-K_HEAVE = 800
-K_ROLL  = 800
-K_PITCH = 800
-K_YAW   = 800
-HEAVE_BIAS = -40
+K_SURGE = 400
+K_SWAY  = 400
+K_HEAVE = 400
+K_ROLL  = 400
+K_PITCH = 400
+K_YAW   = 400
 
 
 # --- Velocity Limits ---
-MAX_LIN_VEL = 0.3
-MAX_ANG_VEL = 0.1
+MAX_LIN_VEL = 0.5
+MAX_ANG_VEL = 0.2
 
 
 # --- QGC Port Configuration ---
@@ -54,10 +49,22 @@ QGC_PORT = 5600
 
 
 # --- Transformation Matrix ---
-# Camera X right | Y down  | Z front
-# U-ROVs X front | Y right | Z down
-R_CB = np.array([[0,0,1],
-                 [1,0,0],
-                 [0,1,0]], dtype=float) # CAM to NED
+# Camera X Right | Y Down  | Z Front
+# MavROS X Front | Y Left  | Z Up
+# U-ROVs X Front | Y Right | Z Down
 
-P_CB = np.array([P_CB_X, P_CB_Y, P_CB_Z])
+# Camera (OpenCV) -> IMU (FLU)
+R_IC = np.array([
+    [ 0.02514123, -0.08710579,  0.99588177],
+    [-0.99910152,  0.03181017,  0.02800482],
+    [-0.03411855, -0.99569106, -0.08622778]], dtype=float)
+
+# IMU (FLU) -> Body (NED)
+R_BI = np.array([
+    [1,  0,  0],
+    [0, -1,  0],
+    [0,  0, -1]], dtype=float)
+
+R_BC = R_BI @ R_IC
+
+P_BC = R_BI @ P_IC
