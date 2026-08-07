@@ -32,9 +32,10 @@ class IBVSRCController(Node):
         self.vel_cam_pub = self.create_publisher(TwistStamped, "/ibvs/vel_cam", 10)
         self.vel_body_pub = self.create_publisher(TwistStamped, "/ibvs/vel_body", 10)
 
-        self.nu_hat_pub = self.create_publisher(TwistStamped, "/ibvs/nu_hat", 10)
+        self.nu_B_hat_pub = self.create_publisher(TwistStamped, "/ibvs/nu_B_hat", 10)
         self.torque_pub = self.create_publisher(WrenchStamped, "/ibvs/torque", 10)
 
+        self.ukf_data_pub = self.create_publisher(Float32MultiArray, "/ibvs/ukf/data", 10)
         self.err_px_pub = self.create_publisher(Float32MultiArray, "/ibvs/error_px", 10)
         self.err_no_pub = self.create_publisher(Float32MultiArray, "/ibvs/error_no", 10)
 
@@ -61,7 +62,10 @@ class IBVSRCController(Node):
         self.depth_img = None
         self.detected_uv = None
         self.last_tag_time = None
-        self.prev_L = None
+        self.L_prev = None
+        self.L_hat = None
+        self.Ldot = None
+        self.last_delta = None
         
         # PI controller state
         self.last_time = None
@@ -77,7 +81,7 @@ class IBVSRCController(Node):
         self.tag_lost = True
         self.TAG_TIMEOUT = 1  # seconds
 
-        self.TcB = self.camera_body_adjoint()
+        self.T_bc = self.camera_body_adjoint()
 
         # # RC command buffer (IMPORTANT)
         # self.rc_cmd = [1500] * 18
@@ -119,6 +123,10 @@ class IBVSRCController(Node):
         self.beta = 2.0
         self.kappa = 0.0
 
+        self.betaQ_feature = 0.01
+        self.betaQ_velocity = 0.05
+        self.betaR = 0.05
+        
         self.lambda_ = self.alpha**2 * (self.nx + self.kappa) - self.nx
         self.gamma = np.sqrt(self.nx + self.lambda_)
 
@@ -135,13 +143,15 @@ class IBVSRCController(Node):
         # ---------- State ----------
         Q = np.zeros((self.nx, self.nx))
         Q[:self.feature_dim, :self.feature_dim] = np.eye(self.feature_dim) * 1e-6 # feature process noise
-        Q[self.feature_dim:, self.feature_dim:] = np.eye(6) * 5e-4 # velocity process noise
+        Q[self.feature_dim:, self.feature_dim:] = np.eye(6) * 1e-3 # velocity process noise
 
         self.ukf_x = np.zeros((self.nx,1))
         self.ukf_P = np.eye(self.nx)*0.01
         self.ukf_Q = Q
         self.ukf_R = np.eye(self.n_ft)*1e-4
-        self.nu_hat = np.zeros((6,1))
+        self.nu_C_hat = np.zeros((6,1))
+        self.nu_B_hat = np.zeros((6,1))
+        self.tau = np.zeros((6, 1))
 
     @property
     def feature_dim(self):
@@ -162,47 +172,45 @@ class IBVSRCController(Node):
         if result is None:
             return
 
-        L, distance, e_pixel, e_norm, measurement, e_pixel_img, deltas = result
+        L_meas, distance, e_pixel, e_norm, measurement, e_pixel_img, deltas = result
 
-        self.get_logger().info(f"detection_uv:\n{self.detected_uv}", throttle_duration_sec=1.0)
-        self.get_logger().info(f"desired_uv:\n{self.desired_pts}", throttle_duration_sec=1.0)
+        # self.get_logger().info(f"detection_uv:\n{self.detected_uv}", throttle_duration_sec=1.0)
+        # self.get_logger().info(f"desired_uv:\n{self.desired_pts}", throttle_duration_sec=1.0)
 
         dt = self.get_dt()
 
-        self.ukf_predict(dt, deltas)
+        self.ukf_predict(dt)
         innovation, Pnu, gain_norm, pred_error, z  = self.ukf_update(measurement)
+
+        nu_linear = self.nu_B_hat[:3]
+        nu_angular = self.nu_B_hat[3:]
+
+        self.ukf_logging(innovation, Pnu, gain_norm, pred_error, z)
+        self.publish_twist(self.nu_B_hat_pub, "nu_B_hat", msg.header.stamp, nu_linear, nu_angular)
         
-        self.nu_hat
         self.get_logger().info(
             "UKF velocity = [{}]".format(
-                ", ".join(f"{v:.3f}" for v in self.nu_hat.flatten())
-            ),
-            throttle_duration_sec=1.0
-        )
+                ", ".join(f"{v:.3f}" for v in self.nu_B_hat.flatten())),
+                throttle_duration_sec=1.0)
 
-        # self.get_logger().info(f"innovation = {np.linalg.norm(innovation):.4f}",throttle_duration_sec=1.0)
-        # # self.get_logger().info(f"P(nu) = {np.sqrt(np.diag(Pnu))}",throttle_duration_sec=1.0)
-        # # self.get_logger().info(f"||K|| = {gain_norm:.3e}",throttle_duration_sec=1.0)
-        # # self.get_logger().info(f"prediction error = {pred_error:.6f}",throttle_duration_sec=1.0)
-        # # self.get_logger().info(f"measurement = {np.linalg.norm(z):.5f}",throttle_duration_sec=1.0)
+        L_hat, Ldot = self.compute_Ldot(dt)
 
-        Ldot = self.compute_Ldot(L, dt)
-
-        tau = self.compute_control_tau1(L, Ldot, distance, e_norm, e_pixel_img, dt)
+        tau = self.compute_control_tau1(L_hat, distance, e_norm, e_pixel_img, dt)
+        self.tau = tau.reshape(6,1)
         self.publish_torque(self.torque_pub, "body", msg.header.stamp, tau)
         pwm = self.compute_force_pwm(tau)
 
 
-        # Vc = self.compute_control_ibvs1(L, distance, e_norm, measurement, e_pixel_img, dt)
-        # self.publish_twist(self.vel_cam_pub, "camera", msg.header.stamp, Vc[:3], Vc[3:])
-        # self.publish_twist(self.vel_body_pub, "body", msg.header.stamp, Vb, Wb)
-        # Vb, Wb = self.camera_to_body(Vc)
-        # pwm = self.compute_vel_pwm(Vb, Wb)
+        # # Vc = self.compute_control_ibvs1(L, distance, e_norm, measurement, e_pixel_img, dt)
+        # # self.publish_twist(self.vel_cam_pub, "camera", msg.header.stamp, Vc[:3], Vc[3:])
+        # # self.publish_twist(self.vel_body_pub, "body", msg.header.stamp, Vb, Wb)
+        # # Vb, Wb = self.camera_to_body(Vc)
+        # # pwm = self.compute_vel_pwm(Vb, Wb)
 
-        self.publish_rc()
-        self.publish_error(e_pixel, e_norm)
+        # self.publish_rc()
+        # self.publish_error(e_pixel, e_norm)
 
-        self.log_debug(tau, pwm)
+        # self.log_debug(tau, pwm)
 
     # =========================================================
     def compute_desired_corners_pixel(self, Z_DES, pitch_deg=0.0, yaw_deg=0.0, roll_deg=0.0):
@@ -264,6 +272,7 @@ class IBVSRCController(Node):
     def cb_detection(self, msg):
         if len(msg.detections) == 0:
             self.detected_uv = None
+            self.last_delta = None
             return
 
         det = msg.detections[0]
@@ -287,7 +296,7 @@ class IBVSRCController(Node):
         ])
 
     # =========================================================
-    def build_interaction_matrix(self, state, deltas):
+    def build_interaction_matrix(self, state, deltas=None):
         state = np.asarray(state).flatten()
         rows = []
 
@@ -306,7 +315,7 @@ class IBVSRCController(Node):
                 idx = 2 * i
                 x = state[idx]
                 y = state[idx + 1]
-                delta = deltas[i]
+                delta = deltas[i] 
 
                 Li = self.interaction_matrix_feature_2d(x, y, delta)
                 rows.append(Li)
@@ -353,7 +362,7 @@ class IBVSRCController(Node):
 
         measurement = np.asarray(measurement,dtype=np.float64)
 
-        L = self.build_interaction_matrix(measurement, deltas)
+        L_meas = self.build_interaction_matrix(measurement, deltas)
         distance = np.mean(pts[:,2])
 
         e_pixel = np.asarray(e_pixel).reshape(-1, 1)
@@ -361,33 +370,60 @@ class IBVSRCController(Node):
         measurement = measurement.reshape(-1, 1)
         e_pixel_img = np.asarray(e_pixel_img).reshape(-1, 1)
         deltas = np.asarray(deltas, dtype=np.float64)
+        self.last_delta = deltas.copy()
 
-        return L, distance, e_pixel, e_norm, measurement, e_pixel_img, deltas
+        return L_meas, distance, e_pixel, e_norm, measurement, e_pixel_img, deltas
 
     # =========================================================
-    def ukf_process_model(self, state, dt, deltas):
+    def ukf_process_model_vc(self, state, dt):
         state = np.asarray(state).flatten()
         feature = state[:self.feature_dim]
-        nu = state[self.feature_dim:]
+        nu_C = state[self.feature_dim:]
 
-        L = self.build_interaction_matrix(feature, deltas)
-        feature_next = feature + dt*(L @ nu)
+        if self.use_3d_matrix_feature:
+            L_hat = self.build_interaction_matrix(feature)
 
-        x_next = np.concatenate([feature_next, nu])
+        else:
+            L_hat = self.build_interaction_matrix(feature,self.last_delta)
+
+        feature_next = feature + dt*(L_hat @ nu_C)
+
+        x_next = np.concatenate([feature_next, nu_C])
         return x_next
 
+    # =========================================================
+    def ukf_process_model_vb(self, state, dt):
+        state = np.asarray(state).flatten()
+        feature = state[:self.feature_dim]
+        nu_B = state[self.feature_dim:]
+
+        if self.use_3d_matrix_feature:
+            L_hat = self.build_interaction_matrix(feature)
+
+        else:
+            L_hat = self.build_interaction_matrix(feature,self.last_delta)
+
+        gamma = self.compute_gamma(nu_B.reshape(-1,1))
+        nu_B_dot = self.Minv @ (self.tau - gamma)
+
+        feature_next = feature + dt * (L_hat @ self.T_bc @ nu_B)
+        nu_B_next = nu_B + dt * nu_B_dot.flatten()
+
+        x_next = np.concatenate([feature_next, nu_B_next])
+        return x_next
+    
     # =========================================================
     def ukf_measurement_model(self, state):
         return state[:self.feature_dim]
 
         # =========================================================
-    def ukf_predict(self, dt, deltas):
+    def ukf_predict(self, dt):
         sigma = self.ukf_sigma_points()
         sigma_pred = np.zeros_like(sigma)
 
         for i in range(2*self.nx+1):
-            sigma_pred[i] = self.ukf_process_model(
-                sigma[i], dt, deltas)
+            sigma_pred[i] = self.ukf_process_model_vb(
+                sigma[i], dt)
 
         x_pred = np.zeros(self.nx)
 
@@ -404,6 +440,8 @@ class IBVSRCController(Node):
         self.ukf_sigma_pred = sigma_pred
         self.ukf_x = x_pred.reshape(-1,1)
         self.ukf_P = P_pred
+        self.x_pred = self.ukf_x.copy()
+        self.P_pred = self.ukf_P.copy()
 
     # =========================================================
     def ukf_update(self, z):
@@ -434,15 +472,43 @@ class IBVSRCController(Node):
         K = Pxz @ np.linalg.inv(S)
         innovation = z-z_pred
 
-        pred_error = np.linalg.norm(innovation)
-
         self.ukf_x += (K @ innovation.reshape(-1,1))
         self.ukf_P -= K @ S @ K.T
-        
+        self.ukf_P = 0.5*(self.ukf_P + self.ukf_P.T)
+        self.ukf_P += 1e-9*np.eye(self.nx)
+
+        #Adaptive Q Matrix
+        dx = (self.ukf_x - self.x_pred).flatten()
+
+        df = dx[:self.feature_dim]
+        dv = dx[self.feature_dim:]
+
+        Qf = np.outer(df, df)
+        Qv = np.outer(dv, dv)
+
+        self.ukf_Q[:self.feature_dim,:self.feature_dim] = ((1-self.betaQ_feature) * self.ukf_Q[:self.feature_dim,:self.feature_dim] + self.betaQ_feature * Qf)
+        self.ukf_Q[-6:,-6:] = ((1-self.betaQ_velocity) * self.ukf_Q[-6:,-6:] + self.betaQ_velocity * Qv)
+
+        # Adaptive R Matrix
+        dz = innovation.reshape(-1,1)
+
+        self.ukf_R = ((1-self.betaR) * self.ukf_R + self.betaR * (dz @ dz.T))
+
+        self.ukf_Q = 0.5*(self.ukf_Q + self.ukf_Q.T)
+        self.ukf_R = 0.5*(self.ukf_R + self.ukf_R.T)
+
+        diagQ = np.clip(np.diag(self.ukf_Q),1e-8,1e-2)
+        self.ukf_Q = np.diag(diagQ)
+
+        diagR = np.clip(np.diag(self.ukf_R),1e-7,1e-2)
+        self.ukf_R = np.diag(diagR)
+
+        # Logging Variables
+        pred_error = np.linalg.norm(innovation)
         Pnu = self.ukf_P[-6:, -6:]
         gain_norm = np.linalg.norm(K)
         
-        self.nu_hat = self.ukf_x[-6:].copy()
+        self.nu_B_hat = self.ukf_x[-6:].copy()
 
         return innovation, Pnu, gain_norm, pred_error, z
 
@@ -459,16 +525,32 @@ class IBVSRCController(Node):
         return dt
 
     # =========================================================
-    def compute_Ldot(self, L, dt):
-        if self.prev_L is None:
-            self.prev_L = L.copy()
+    def compute_Ldot(self, dt):
+        if dt <= 1e-6:
+            return np.zeros_like(self.L_prev) if self.L_prev is not None else None
 
-            return np.zeros_like(L)
+        feature_hat = self.ukf_x[:self.feature_dim].flatten()
 
-        Ldot = (L - self.prev_L) / dt
-        self.prev_L = L.copy()
+        if self.use_3d_matrix_feature:
+            L_hat = self.build_interaction_matrix(feature_hat)
 
-        return Ldot
+        else:
+            if self.last_delta is None:
+                return None
+
+            L_hat = self.build_interaction_matrix(feature_hat, self.last_delta)
+
+        if self.L_prev is None:
+            self.L_prev = L_hat.copy()
+            self.L_hat = L_hat.copy()
+            self.Ldot = np.zeros_like(L_hat)
+            return self.L_hat, self.Ldot
+
+        self.Ldot = (L_hat - self.L_prev) / dt
+        self.L_prev = L_hat.copy()
+        self.L_hat = L_hat.copy()
+
+        return self.L_hat, self.Ldot
 
     # =========================================================
     def skew(self, p):
@@ -482,11 +564,11 @@ class IBVSRCController(Node):
     # =========================================================
     def camera_body_adjoint(self):
         S = self.skew(P_BC)
-        TcB = np.block([
+        T_bc = np.block([
             [R_BC,         S @ R_BC],
             [np.zeros((3,3)),  R_BC]])
 
-        return TcB
+        return T_bc
 
     # =========================================================
     def compute_damping(self, nu):
@@ -517,8 +599,7 @@ class IBVSRCController(Node):
         return np.zeros((6,1))
 
     # =========================================================
-    def compute_gamma(self):
-        nu = self.nu_hat
+    def compute_gamma(self, nu):
         gamma = (self.compute_coriolis(nu) +
                 self.compute_damping(nu) +
                 self.compute_restoring())
@@ -528,7 +609,23 @@ class IBVSRCController(Node):
     # =========================================================
     def compute_alpha(self, L):
 
-        return L @ self.TcB @ self.Minv
+        return L @ self.T_bc @ self.Minv
+
+    # =========================================================
+    def compute_control_tau1(self, L_hat, distance, e_norm, e_pixel, dt):
+        alpha = self.compute_alpha(L_hat)
+        gamma = self.compute_gamma(self.nu_B_hat.reshape(-1,1))
+
+        rhs = lambda_gain * e_norm + self.Ldot @ self.T_bc @ self.nu_B_hat - alpha @ gamma
+        tau = -np.linalg.pinv(alpha) @ rhs
+
+        if np.max(np.abs(e_pixel)) < dead_band:
+            tau[:] = 0
+
+        self.limit_force(tau)
+        tau = tau.flatten()
+
+        return tau
 
     # =========================================================
     def compute_control_ibvs1(self, L, distance, e_norm, e_pixel, dt):
@@ -550,30 +647,6 @@ class IBVSRCController(Node):
         self.limit_velocity(Vc)
 
         return Vc
-
-    # =========================================================
-    def compute_control_tau1(self, L, Ldot, distance, e_norm, e_pixel, dt):
-        A = L.T @ L + mu**2 * np.eye(6)
-
-        if self.e_integral is None:
-            self.e_integral = np.zeros_like(e_norm)
-
-        self.e_integral += e_norm * dt
-        self.e_integral = np.clip(self.e_integral, -0.3, 0.3)
-
-        alpha = self.compute_alpha(L)
-        gamma = self.compute_gamma()
-
-        rhs = lambda_gain * e_norm + Ldot @ self.nu_hat - alpha @ gamma
-        tau = -np.linalg.pinv(alpha) @ rhs
-
-        if np.max(np.abs(e_pixel)) < dead_band:
-            tau[:] = 0
-
-        self.limit_force(tau)
-        tau = tau.flatten()
-
-        return tau
 
     # =========================================================
     def compute_control_ibvs2(self, L, distance, e_norm, pixel_norm):
@@ -637,10 +710,10 @@ class IBVSRCController(Node):
     def limit_force(self, tau):
         force = np.linalg.norm(tau[:3])
         if force > MAX_FORCE:
-            tau[:3] *= MAX_MOMEN / force
+            tau[:3] *= MAX_FORCE / force
 
         momen = np.linalg.norm(tau[3:])
-        if momen > MAX_FORCE:
+        if momen > MAX_MOMEN:
             tau[3:] *= MAX_MOMEN / momen
 
     # =========================================================
@@ -727,6 +800,27 @@ class IBVSRCController(Node):
         self.current_pwm = pwm
 
         return pwm
+
+    # =========================================================
+    def ukf_logging(self, innovation, Pnu, gain_norm, pred_error, z):
+        self.get_logger().info(f"innovation = {np.linalg.norm(innovation):.4f}",throttle_duration_sec=1.0)
+        self.get_logger().info(f"P(nu) = {np.sqrt(np.diag(Pnu))}",throttle_duration_sec=1.0)
+        self.get_logger().info(f"||K|| = {gain_norm:.3e}",throttle_duration_sec=1.0)
+        self.get_logger().info(f"prediction error = {pred_error:.6f}",throttle_duration_sec=1.0)
+        self.get_logger().info(f"measurement = {np.linalg.norm(z):.5f}",throttle_duration_sec=1.0)
+
+        sigma = np.sqrt(np.diag(Pnu))
+
+        msg = Float32MultiArray()
+        msg.data = [
+            float(np.linalg.norm(innovation)),
+            float(gain_norm),
+            float(pred_error),
+            float(np.linalg.norm(z)),
+            *sigma.tolist()
+        ]
+
+        self.ukf_data_pub.publish(msg)
 
     # =========================================================
     # def log_debug(self, Vc=None, Vb=None, Wb=None, tau=None, pwm=None):
@@ -820,3 +914,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
