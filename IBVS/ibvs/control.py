@@ -2,12 +2,12 @@ import numpy as np
 from .parameter import *
 
 class IBVS_Controller:
-    def __init__(self, N=4, use_3d_matrix_feature=True,):
+    def __init__(self, shared, N=4, use_3d_matrix_feature=True,):
         self.use_3d_matrix_feature = use_3d_matrix_feature
         self.N = N
+        self.shared = shared
 
         self.geometry = IBVS_Geometry(N=self.N, use_3d_matrix_feature=self.use_3d_matrix_feature,)
-        self.shared = Shared_State()
 
         self.T_bc = self.geometry.T_bc
         self.Minv = np.linalg.inv(M)
