@@ -1,19 +1,33 @@
 import numpy as np
-from .constants import *
+from .parameter import *
 
 class UKF_Estimator:
-    def __init__(self, nx, feature_dim):
+    def __init__(self, nx, feature_dim, N=4,
+        use_3d_matrix_feature=True,
+        use_camera_noise=False,
+        sigma_u_px=0.5,
+        sigma_v_px=0.5,
+        sigma_Z_m=0.005,
+        camera_noise_seed=None,
+        logger=None,
+    ):
         self.nx = nx
         self.n_ft = feature_dim
         self.feature_dim = feature_dim
-        
-        # Flags and tracking variables
-        self.tag_lost = False
+        self.N = N
+        self.use_3d_matrix_feature = use_3d_matrix_feature
 
-        self.T_bc = self.camera_body_adjoint()
+        # ROS-independent logging hook. The node can pass get_logger().
+        self.logger = logger
+        
+        self.geometry = IBVS_Geometry(N=self.N, use_3d_matrix_feature=self.use_3d_matrix_feature,)
+        self.shared = Shared_State()
+
+        self.T_bc = self.geometry.T_bc
+        self.Minv = np.linalg.inv(M)
         
         # Process and Measurement noise matrices (Initialize as needed)
-        self.Q = np.eye(nx, dtype=np.float64) * 0.001
+        # self.Q = np.eye(nx, dtype=np.float64) * 0.001
         self.R_imu = np.diag([
             1.272148604270818**2,
             1.272148604270818**2,
@@ -23,6 +37,13 @@ class UKF_Estimator:
             0.0011478924062028428**2
         ])
         self.R_camera = np.eye(self.n_ft, dtype=np.float64) * 1e-4
+
+        # Camera measurement-noise injection settings.
+        self.use_camera_noise = bool(use_camera_noise)
+        self.sigma_u_px = float(sigma_u_px)
+        self.sigma_v_px = float(sigma_v_px)
+        self.sigma_Z_m = float(sigma_Z_m)
+        self.camera_noise_rng = np.random.default_rng(camera_noise_seed)
 
         self.idx_sC = slice(0, self.n_ft)
         self.idx_vB = slice(self.n_ft, self.n_ft + 3)
@@ -58,7 +79,6 @@ class UKF_Estimator:
         self.gamma = np.sqrt(self.nx + self.lambda_)
         self.n_sigma = 2 * self.nx + 1
 
-        # ---------- Weights ----------
         self.Wm = np.full(2*self.nx+1,
                           1.0/(2*(self.nx+self.lambda_)))
 
@@ -73,13 +93,20 @@ class UKF_Estimator:
         self.ukf_x = np.zeros((self.nx,1))
         self.ukf_P = np.eye(self.nx)*1e-3
 
-        self.tau_ukf = np.zeros((6,1))
-
         self.sC_hat = np.zeros(self.n_ft)
-        self.nu_B_hat = np.zeros((6,1))
-        self.nu_C_hat = np.zeros((6,1))
-        self.b_a_hat = np.zeros((3,1))
-        self.b_g_hat = np.zeros((3,1))
+        self.vB_hat = np.zeros(3)
+        self.wB_hat = np.zeros(3)
+        self.bg_hat = np.zeros(3)
+        self.aB_hat = np.zeros(3)
+        self.ba_hat = np.zeros(3)
+        self.bo_hat = np.zeros(3)
+        self.nu_B_hat = np.zeros((6, 1))
+        self.nu_C_hat = np.zeros((6, 1))
+
+    # =========================================================
+    def _log_info(self, text):
+        if self.logger is not None:
+            self.logger.info(text)
 
     # =========================================================
     def pack_state(self, s_C, v_B, w_B, b_g, a_B, b_a, b_o): 
@@ -109,23 +136,22 @@ class UKF_Estimator:
 
         return s_C, v_B, w_B, b_g, a_B, b_a, b_o
 
-    # =========================================================
-    def skew(self, p):
+    def reset(self):
+        self.ukf_x = np.zeros(self.nx)
 
-        return np.array([
-            [0,-p[2],p[1]],
-            [p[2],0,-p[0]],
-            [-p[1],p[0],0]
-        ])
-
-    # =========================================================
-    def camera_body_adjoint(self):
-        S = self.skew(P_BC)
-        T_bc = np.block([
-            [R_CB,           -R_CB @ S],
-            [np.zeros((3,3)),     R_CB]])
-
-        return T_bc
+        P0 = np.zeros((self.nx, self.nx), dtype=np.float64)
+        if self.use_3d_matrix_feature:
+            P0[self.idx_sC, self.idx_sC] = (np.eye(12) * 1e-3)
+        else:
+            P0[self.idx_sC, self.idx_sC] = (np.eye(8) * 1e-3)
+        P0[self.idx_vB, self.idx_vB] = (np.eye(3) * 1e-2)
+        P0[self.idx_wB, self.idx_wB] = (np.eye(3) * 1e-2)
+        P0[self.idx_bg, self.idx_bg] = (np.eye(3) * 1e-4)
+        P0[self.idx_aB, self.idx_aB] = (np.eye(3) * 1e-4)
+        P0[self.idx_ba, self.idx_ba] = (np.eye(3) * 1e-2)
+        P0[self.idx_bo, self.idx_bo] = (np.eye(3) * 1e-2)
+        
+        self.ukf_P = P0
     
     # =========================================================
     def fossen_acceleration(self, nu_B, tau):
@@ -136,14 +162,14 @@ class UKF_Estimator:
         nu_dot_B = self.Minv @ (tau + gamma)
 
         return nu_dot_B
-
+    
     # =========================================================
     def build_Q(self, dt):
         Q = np.zeros((self.nx, self.nx), dtype=np.float64)
 
         q_Sc = np.tile([self.q_u, self.q_v, self.q_Z],self.N)
 
-        if self.tag_lost:
+        if self.shared.tag_lost:
             adaptive_q_vB = self.q_vB * 1e-4  # Heavily dampen velocity uncertainty growth
             adaptive_q_wB = self.q_wB * 1e-4
         else:
@@ -189,8 +215,8 @@ class UKF_Estimator:
         P0[self.idx_bo, self.idx_bo] = (np.eye(3) * 1e-2)
         
         self.ukf_P = P0
-        self.ukf_initialized = True
-        self.get_logger().info("UKF initialized from stereo camera measurement.")
+        self.shared.ukf_initialized = True
+        self._log_info("UKF initialized from stereo camera measurement.")
 
     # =========================================================
     def generate_sigma_points(self, x, P):
@@ -270,7 +296,7 @@ class UKF_Estimator:
 
         s_C, v_B, w_B, b_g, a_B, b_a, b_o = self.unpack_state(state)
 
-        if self.tag_lost:
+        if self.shared.tag_lost:
             v_B = v_B * 0.95 
             w_B = w_B * 0.90
             a_B = a_B * 0.50
@@ -279,12 +305,12 @@ class UKF_Estimator:
         nu_C = self.T_bc @ nu_B
 
         if self.use_3d_matrix_feature:
-            L_sigma = self.build_interaction_matrix(state)
+            L_sigma = self.geometry.build_interaction_matrix(state)
         
         else:
-            L_sigma = self.build_interaction_matrix(s_C, self.last_delta)
+            L_sigma = self.geometry.build_interaction_matrix(s_C, self.shared.last_delta)
 
-        sC_next = s_C + dt * (L_sigma @ nu_C)
+        sC_next = s_C + dt * (L_sigma @ nu_C).reshape(-1)
         vB_next = v_B + dt * a_B
         wB_next = w_B + dt * b_o
 
@@ -296,7 +322,7 @@ class UKF_Estimator:
         return self.pack_state(sC_next, vB_next, wB_next, bg_next, aB_next, ba_next, bo_next)
 
     # =========================================================
-    def ukf_predict(self, x, P, dt, tau):
+    def ukf_predict(self, x, P, dt, tau=None):
         sigma = self.generate_sigma_points(x, P)
         sigma_pred = np.zeros_like(sigma)
 
@@ -311,22 +337,17 @@ class UKF_Estimator:
         P_pred += (1e-10 * np.eye(self.nx))
 
         return (x_pred, P_pred, sigma_pred)
-
+    
     # =========================================================
-    def camera_measurement_model(self, state):
-        state = np.asarray(state, dtype=np.float64).reshape(self.nx)
-
-        return state[self.idx_sC].copy()
-
-    def camera_measurement_model_noise(self, z_camera):
+    def camera_measurement_model(self, z_camera):
         z_camera = np.asarray(z_camera, dtype=np.float64).reshape(self.n_ft)
 
-        if not self.enable_camera_noise:
+        if not self.use_camera_noise:
             return z_camera.copy()
 
-        sigma_x = sigma_u_px / FX
-        sigma_y = sigma_v_px / FY
-        sigma_Z = sigma_Z_m
+        sigma_x = self.sigma_u_px / FX
+        sigma_y = self.sigma_v_px / FY
+        sigma_Z = self.sigma_Z_m
         noise = np.zeros(self.n_ft, dtype=np.float64)
 
         for i in range(self.N):
@@ -340,7 +361,6 @@ class UKF_Estimator:
     # =========================================================
     def camera_measurement_model_pinhole(self, state):
         state = np.asarray(state, dtype=np.float64).reshape(self.nx)
-
         s = state[self.idx_sC]
 
         measurement = []
@@ -444,13 +464,3 @@ class UKF_Estimator:
         P_update += 1e-10 * np.eye(self.nx)
 
         return x_update, P_update, innovation, S, K, z_mean
-    
-    # =========================================================
-    def imu_flu_to_body(self, accel_flu, gyro_flu):
-        accel_flu  = np.asarray(accel_flu , dtype=np.float64).reshape(3)
-        gyro_flu = np.asarray(gyro_flu, dtype=np.float64).reshape(3)
-
-        accel_B = R_IB @ accel_flu 
-        gyro_B = R_IB @ gyro_flu
-
-        return accel_B, gyro_B
