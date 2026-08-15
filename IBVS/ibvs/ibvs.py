@@ -69,7 +69,7 @@ class IBVSRCController(Node):
         self.b_a_hat = np.zeros((3,1))
         self.b_g_hat = np.zeros((3,1))
 
-
+        self.shared = Shared_State()
         self.controller = IBVS_Controller(shared=self.shared, 
                                           use_3d_matrix_feature=self.use_3d_matrix_feature, 
                                           N=self.N,)
@@ -82,8 +82,6 @@ class IBVSRCController(Node):
                                        logger=self.get_logger(),)
         self.geometry = IBVS_Geometry(N=self.N, 
                                       use_3d_matrix_feature=self.use_3d_matrix_feature,)
-        self.shared = Shared_State()
-        self.T_bc = self.geometry.T_bc
 
     @property
     def feature_dim(self):
@@ -162,7 +160,7 @@ class IBVSRCController(Node):
         self.bo_hat = self.estimator.ukf_x[self.estimator.idx_bo].copy()
 
         self.nu_B_hat = np.concatenate([self.vB_hat, self.wB_hat]).reshape(6, 1)
-        self.nu_C_hat = self.T_bc @ self.nu_B_hat
+        self.nu_C_hat = self.controller.T_bc @ self.nu_B_hat
 
     # =========================================================
     def validate_camera_measurement(self, z_camera):
@@ -196,7 +194,7 @@ class IBVSRCController(Node):
         if not self.shared.ukf_initialized:
             return
 
-        if not self.camera_measurement_valid:
+        if not self.shared.camera_measurement_valid:
             return
 
         now = self.get_clock().now()
@@ -280,6 +278,8 @@ class IBVSRCController(Node):
          
     # =========================================================
     def cb_corners(self, msg):
+        self.shared.camera_measurement_valid = False
+
         if self.detected_uv is None:
             return
     
@@ -585,14 +585,18 @@ class IBVSRCController(Node):
 
     # =========================================================
     def log_debug(self, tau=None, nu_hat=None, pwm=None):
+        nu_hat = np.asarray(nu_hat, dtype=np.float64).reshape(-1)
+        tau = np.asarray(tau, dtype=np.float64).reshape(-1)
+        pwm = np.asarray(pwm, dtype=np.float64).reshape(-1)
+        
         if nu_hat is not None:
             self.get_logger().info(
-                f"Surge = {nu_hat[0]:.3f} |"
-                f"Sway = {nu_hat[1]:.3f} |"
-                f"Heave = {nu_hat[2]:.3f} |"
-                f"Roll = {nu_hat[3]:.3f} |"
-                f"Pitch = {nu_hat[4]:.3f} |"
-                f"Yaw = {nu_hat[5]:.3f} |",
+                f"Surge = {nu_hat[0]:.2f} |"
+                f"Sway = {nu_hat[1]:.2f} |"
+                f"Heave = {nu_hat[2]:.2f} |"
+                f"Roll = {nu_hat[3]:.2f} |"
+                f"Pitch = {nu_hat[4]:.2f} |"
+                f"Yaw = {nu_hat[5]:.2f} |",
                 throttle_duration_sec=1.0)
             
         if tau is not None:
@@ -644,9 +648,6 @@ class IBVSRCController(Node):
                 self.shared.tag_lost = True
                 self.get_logger().warn("AprilTag LOST")
                 self.reset_state()
-                self.estimator.reset()
-                self.shared.last_delta = None
-                self.shared.ukf_initialized = False
             
             # Only reset to neutral IF the tag is actually lost
             self.current_pwm = [1500] * 18
