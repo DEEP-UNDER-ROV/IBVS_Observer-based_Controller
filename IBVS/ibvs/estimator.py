@@ -181,7 +181,12 @@ class UKF_Estimator:
     def build_Q(self, dt):
         Q = np.zeros((self.nx, self.nx), dtype=np.float64)
 
-        q_Sc = np.tile([self.q_u, self.q_v, self.q_Z],self.N)
+        if self.use_3d_matrix_feature:
+            q_Sc = np.array([self.q_u, self.q_v, self.q_Z],dtype=np.float64)
+        else:
+            q_Sc = np.array([self.q_u, self.q_v],dtype=np.float64)
+
+        q_Sc = np.tile(q_Sc, self.N)
 
         if self.shared.tag_lost:
             adaptive_q_vB = self.q_vB * 1e-4  # Heavily dampen velocity uncertainty growth
