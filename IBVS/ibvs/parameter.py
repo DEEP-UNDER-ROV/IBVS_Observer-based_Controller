@@ -138,42 +138,7 @@ class IBVS_Geometry:
         ])
 
     # =========================================================
-    def interaction_matrix_delta_2d(self, x, y, delta):
-
-        return np.array([
-            [-delta/bline,       0,          delta * x/bline,    x*y,   -(1 + x*x),  y],
-            [0,            -delta/bline,     delta * y/bline,  1 + y*y,    -x*y,    -x]
-        ])
-
-    # =========================================================
-    def interaction_matrix_delta_3d(self, x, y, delta):
-
-        return np.array([
-            [-delta/bline,       0,          delta * x/bline,    x*y,   -(1 + x*x),  y],
-            [0,            -delta/bline,     delta * y/bline,  1 + y*y,    -x*y,    -x],
-            [0,                  0,          -delta / bline,      y,         x,      0]
-        ])
-
-    # =========================================================
-    def interaction_matrix_dot(self, x, y, delta, x_dot, y_dot, delta_dot):
-        b = bline
-
-        Lx = np.array([
-            [0, 0, delta/b, y, -2*x, 0],
-            [0, 0, 0,    0, -y,     -1]])
-
-        Ly = np.array([
-            [0, 0, 0,         x,  0, 1],
-            [0, 0, delta/b, 2*y, -x, 0]])
-
-        Ldelta = np.array([
-            [-1/b, 0, x/b, 0, 0, 0],
-            [0, -1/b, y/b, 0, 0, 0]])
-
-        return ( Lx * x_dot + Ly * y_dot + Ldelta * delta_dot)
-
-    # =========================================================
-    def build_interaction_matrix(self, state, deltas=None):
+    def build_interaction_matrix(self, state, depth=None):
         state = np.asarray(state, dtype=float).flatten()
         rows = []
 
@@ -183,6 +148,45 @@ class IBVS_Geometry:
                 x, y, Z = state[idx:idx + 3]
                 rows.append(self.interaction_matrix_3d(x, y, Z))
         else:
+            if depth is None:
+                return None
+
+            depth = np.asarray(depth, dtype=float).reshape(self.N)
+            for i in range(self.N):
+                idx = 2 * i
+                x, y = state[idx:idx + 2]
+                rows.append(self.interaction_matrix_2d(x, y, depth[i]))
+
+        return np.vstack(rows)
+
+    # =========================================================
+    def interaction_matrix_delta_2d(self, x, y, delta):
+
+        return np.array([
+            [-delta/bline,       0,          delta * x/bline,    x*y,   -(1 + x*x),  y],
+            [       0,     -delta/bline,     delta * y/bline,  1 + y*y,    -x*y,    -x]
+        ])
+
+    # =========================================================
+    def interaction_matrix_delta_3d(self, x, y, delta):
+
+        return np.array([
+            [-delta/bline,       0,          delta * x/bline,    x*y,   -(1 + x*x),  y],
+            [     0,       -delta/bline,     delta * y/bline,  1 + y*y,    -x*y,    -x],
+            [     0,             0,          -delta / bline,      y,         x,      0]
+        ])
+
+    # =========================================================
+    def build_interaction_matrix_delta(self, state, deltas=None):
+        state = np.asarray(state, dtype=float).flatten()
+        rows = []
+
+        if self.use_3d_matrix_feature:
+            for i in range(self.N):
+                idx = 3 * i
+                x, y, deltas = state[idx:idx + 3]
+                rows.append(self.interaction_matrix_delta_3d(x, y, deltas))
+        else:
             if deltas is None:
                 return None
 
@@ -190,13 +194,52 @@ class IBVS_Geometry:
             for i in range(self.N):
                 idx = 2 * i
                 x, y = state[idx:idx + 2]
-                rows.append(self.interaction_matrix_2d(x, y, deltas[i]))
+                rows.append(self.interaction_matrix_delta_2d(x, y, deltas[i]))
 
         return np.vstack(rows)
+
+    # =========================================================
+    def interaction_matrix_2d_dot(x, y, Z, x_dot, y_dot, Z_dot):
+        Z2 = Z * Z
+
+        return np.array([
+            [Z_dot / Z2,     0.0,    x_dot / Z - x * Z_dot / Z2, x_dot * y + x * y_dot,     -2.0 * x * x_dot,      y_dot],
+            [    0.0,    Z_dot / Z2, y_dot / Z - y * Z_dot / Z2, 2.0 * y * y_dot,       -(x_dot * y + x * y_dot), -x_dot]
+        ])
+    
+    # =========================================================
+    def interaction_matrix_3d_dot(x, y, Z, x_dot, y_dot, Z_dot):
+        Z2 = Z * Z
+
+        return np.array([
+            [Z_dot / Z2,     0.0,    x_dot / Z - x * Z_dot / Z2, x_dot * y + x * y_dot,     -2.0 * x * x_dot,      y_dot],
+            [    0.0,    Z_dot / Z2, y_dot / Z - y * Z_dot / Z2, 2.0 * y * y_dot,       -(x_dot * y + x * y_dot), -x_dot],
+            [    0.0,        0.0,            Z_dot / Z2,              -y_dot,                    x_dot,              0.0]
+        ])
+
+    # =========================================================
+    def interaction_matrix_delta_2d_dot(self, x, y, delta, x_dot, y_dot, delta_dot):
+        b = bline
+
+        return np.array([
+            [-delta_dot / b,     0.0,        (delta_dot * x + delta * x_dot) / b, x_dot * y + x * y_dot,     -2.0 * x * x_dot,      y_dot],
+            [      0.0,      -delta_dot / b, (delta_dot * y + delta * y_dot) / b,    2.0 * y * y_dot,    -(x_dot * y + x * y_dot), -x_dot]
+        ])
+    
+    # =========================================================
+    def interaction_matrix_delta_3d_dot(self, x, y, delta, x_dot, y_dot, delta_dot):
+        b = bline
+
+        return np.array([
+            [-delta_dot / b,     0.0,        (delta_dot * x + delta * x_dot) / b, x_dot * y + x * y_dot,     -2.0 * x * x_dot,      y_dot],
+            [      0.0,      -delta_dot / b, (delta_dot * y + delta * y_dot) / b,    2.0 * y * y_dot,    -(x_dot * y + x * y_dot), -x_dot],
+            [      0.0,          0.0,                -delta_dot / b,                     y_dot,                   x_dot,              0.0]
+        ])
 
 class Shared_State:
     def __init__(self):
         self.tag_lost = True
         self.ukf_initialized = False
+        self.last_depth = None
         self.last_delta = None
         self.camera_measurement_valid = False
