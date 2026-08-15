@@ -4,6 +4,7 @@ from .parameter import *
 class UKF_Estimator:
     def __init__(self, shared, nx, feature_dim, N=4,
         use_3d_matrix_feature=True,
+        use_delta_matrix=False,
         use_camera_noise=False,
         sigma_u_px=0.5,
         sigma_v_px=0.5,
@@ -16,6 +17,7 @@ class UKF_Estimator:
         self.feature_dim = feature_dim
         self.N = N
         self.use_3d_matrix_feature = use_3d_matrix_feature
+        self.use_delta_matrix = use_delta_matrix
 
         # ROS-independent logging hook. The node can pass get_logger().
         self.logger = logger
@@ -199,7 +201,7 @@ class UKF_Estimator:
         return Q
 
     # =========================================================
-    def initialize_ukf_from_camera(self, z_camera, z_imu=None):
+    def initialize_ukf_from_camera(self, z_camera):
         z_camera = np.asarray(z_camera, dtype=np.float64).reshape(self.n_ft)
 
         s_C0 = z_camera.copy()
@@ -209,8 +211,6 @@ class UKF_Estimator:
         a_B0 = np.zeros(3)
         b_a0 = np.zeros(3)
         b_o0 = np.zeros(3)
-        if z_imu is not None:
-            z_imu = np.asarray(z_imu, dtype=np.float64).reshape(6)
 
         self.ukf_x = self.pack_state(s_C0, v_B0, w_B0, b_g0, a_B0, b_a0, b_o0)
 
@@ -303,7 +303,7 @@ class UKF_Estimator:
         return Pxz
 
     # =========================================================
-    def ukf_process_model(self, state, dt, tau=None):
+    def ukf_process_model(self, state, dt, last_depth=None, last_delta=None,):
         state = np.asarray(state, dtype=np.float64).reshape(self.nx)
 
         s_C, v_B, w_B, b_g, a_B, b_a, b_o = self.unpack_state(state)
@@ -316,11 +316,14 @@ class UKF_Estimator:
         nu_B = np.concatenate([v_B, w_B])
         nu_C = self.T_bc @ nu_B
 
-        if self.use_3d_matrix_feature:
-            L_sigma = self.geometry.build_interaction_matrix(state)
-        
-        else:
-            L_sigma = self.geometry.build_interaction_matrix(s_C, self.shared.last_delta)
+        if self.use_3d_matrix_feature and self.use_delta_matrix:
+            L_sigma = self.geometry.build_interaction_matrix_delta(s_C)
+        elif self.use_3d_matrix_feature and not self.use_delta_matrix:
+            L_sigma = self.geometry.build_interaction_matrix(s_C)
+        elif not self.use_3d_matrix_feature and self.use_delta_matrix:
+            L_sigma = self.geometry.build_interaction_matrix_delta(s_C, last_delta)
+        elif not self.use_3d_matrix_feature and not self.use_delta_matrix:
+            L_sigma = self.geometry.build_interaction_matrix(s_C, last_depth)
 
         sC_next = s_C + dt * (L_sigma @ nu_C).reshape(-1)
         vB_next = v_B + dt * a_B
@@ -334,12 +337,12 @@ class UKF_Estimator:
         return self.pack_state(sC_next, vB_next, wB_next, bg_next, aB_next, ba_next, bo_next)
 
     # =========================================================
-    def ukf_predict(self, x, P, dt, tau=None):
+    def ukf_predict(self, x, P, dt, last_depth=None, last_delta=None,):
         sigma = self.generate_sigma_points(x, P)
         sigma_pred = np.zeros_like(sigma)
 
         for i in range(self.n_sigma):
-            sigma_pred[i] = (self.ukf_process_model(sigma[i], dt, tau))
+            sigma_pred[i] = (self.ukf_process_model(sigma[i], dt, last_depth, last_delta,))
 
         x_pred = self.weighted_mean(sigma_pred)
         P_pred = self.state_covariance(sigma_pred, x_pred)
