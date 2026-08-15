@@ -40,10 +40,6 @@ class IBVSRCController(Node):
 
         self.nu_B_hat_pub = self.create_publisher(TwistStamped, "/ibvs/nu_B_hat", 10)
         self.torque_pub = self.create_publisher(WrenchStamped, "/ibvs/torque", 10)
-        self.tau_P_pub = self.create_publisher(WrenchStamped, "/ibvs/torque/p", 10)
-        self.tau_D_pub = self.create_publisher(WrenchStamped, "/ibvs/torque/d", 10)
-        self.tau_L_pub = self.create_publisher(WrenchStamped, "/ibvs/torque/l", 10)
-        self.tau_gamma_pub = self.create_publisher(WrenchStamped, "/ibvs/torque/gamma", 10)
 
         self.ukf_data_pub = self.create_publisher(Float32MultiArray, "/ibvs/ukf/data", 10)
         self.err_px_pub = self.create_publisher(Float32MultiArray, "/ibvs/error/px", 10)
@@ -74,11 +70,20 @@ class IBVSRCController(Node):
         self.b_g_hat = np.zeros((3,1))
 
 
-        self.controller = IBVS_Controller(use_3d_matrix_feature=self.use_3d_matrix_feature, N=self.N,)
-        self.estimator = UKF_Estimator(nx=self.nx, feature_dim=self.n_ft, N=self.N, use_3d_matrix_feature=self.use_3d_matrix_feature, use_camera_noise=self.use_camera_noise, logger=self.get_logger(),)
-        self.geometry = IBVS_Geometry(N=self.N, use_3d_matrix_feature=self.use_3d_matrix_feature,)
+        self.controller = IBVS_Controller(shared=self.shared, 
+                                          use_3d_matrix_feature=self.use_3d_matrix_feature, 
+                                          N=self.N,)
+        self.estimator = UKF_Estimator(shared=self.shared, 
+                                       nx=self.nx, 
+                                       feature_dim=self.n_ft,
+                                       N=self.N, 
+                                       use_3d_matrix_feature=self.use_3d_matrix_feature, 
+                                       use_camera_noise=self.use_camera_noise, 
+                                       logger=self.get_logger(),)
+        self.geometry = IBVS_Geometry(N=self.N, 
+                                      use_3d_matrix_feature=self.use_3d_matrix_feature,)
         self.shared = Shared_State()
-        self.T_bc = self.controller.T_bc
+        self.T_bc = self.geometry.T_bc
 
     @property
     def feature_dim(self):
@@ -128,8 +133,22 @@ class IBVSRCController(Node):
         self.get_logger().info(f"IBVS Control {'3D Matrix' if self.use_3d_matrix_feature else '2D Matrix'}")
 
     # =========================================================
-    def cb_restart(self):
-        self.reset_state()
+    def reset_state(self):
+        self.controller.reset()
+        self.estimator.reset()
+
+        self.shared.ukf_initialized = False
+        self.shared.last_delta = None
+        self.shared.camera_measurement_valid = False
+
+        self.last_imu_time = None
+        self.last_camera_time = None
+        self.last_control_time = None
+        self.last_camera_innovation = None
+        self.last_imu_innovation = None
+
+        self.last_time = None
+
         self.get_logger().info("IBVS State variables successfully reset.")
 
     # =========================================================
@@ -250,7 +269,7 @@ class IBVSRCController(Node):
         if not self.shared.ukf_initialized:
             return
 
-        x_pred, P_pred, sigma_pred = self.estimator.ukf_predict(self.ukf_x, self.ukf_P, dt, None)
+        x_pred, P_pred, sigma_pred = self.estimator.ukf_predict(self.estimator.ukf_x, self.estimator.ukf_P, dt, None)
         self.estimator.ukf_x, self.estimator.ukf_P, imu_innovation, S_imu, K_imu, z_imu_mean = self.estimator.ukf_update_imu(x_pred, P_pred, sigma_pred, z_imu, R_NB)
         self.update_estimator()
         self.ukf_logging(source="imu", innovation=imu_innovation, K=K_imu, z=z_imu)
@@ -298,8 +317,8 @@ class IBVSRCController(Node):
             return
 
         if self.use_camera_ukf:
-            sigma_camera = self.estimator.generate_sigma_points(self.ukf_x, self.ukf_P)
-            self.estimator.ukf_x, self.estimator.ukf_P, cam_innovation, S_cam, K_cam, z_cam_mean = self.estimator.ukf_update_camera(self.ukf_x, self.ukf_P, sigma_camera, z_camera)
+            sigma_camera = self.estimator.generate_sigma_points(self.estimator.ukf_x, self.estimator.ukf_P)
+            self.estimator.ukf_x, self.estimator.ukf_P, cam_innovation, S_cam, K_cam, z_cam_mean = self.estimator.ukf_update_camera(self.estimator.ukf_x, self.estimator.ukf_P, sigma_camera, z_camera)
             self.update_estimator()
             self.ukf_logging(source="camera", innovation=cam_innovation, K=K_cam, z=z_camera)
 
@@ -534,12 +553,13 @@ class IBVSRCController(Node):
 
         measurement_norm = np.linalg.norm(z)
 
-        P_nu = self.ukf_P[np.ix_(self.idx_nuB, self.idx_nuB)]
+        P_nu = self.estimator.ukf_P[np.ix_(self.estimator.idx_nuB, self.estimator.idx_nuB)]
         P_nu = 0.5 * (P_nu + P_nu.T)
 
         sigma_nu = np.sqrt(np.maximum(np.diag(P_nu), 0.0))
 
-        nu_B = np.concatenate([self.ukf_x[self.idx_vB], self.ukf_x[self.idx_wB]])
+        nu_B = np.concatenate([self.estimator.ukf_x[self.estimator.idx_vB], 
+                               self.estimator.ukf_x[self.estimator.idx_wB]])
 
         msg = Float32MultiArray()
         msg.data = [
@@ -623,7 +643,7 @@ class IBVSRCController(Node):
             if not self.shared.tag_lost:
                 self.shared.tag_lost = True
                 self.get_logger().warn("AprilTag LOST")
-                self.controller.reset()
+                self.reset_state()
                 self.estimator.reset()
                 self.shared.last_delta = None
                 self.shared.ukf_initialized = False
