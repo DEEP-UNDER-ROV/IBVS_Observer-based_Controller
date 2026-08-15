@@ -199,7 +199,7 @@ class IBVS_Geometry:
         return np.vstack(rows)
 
     # =========================================================
-    def interaction_matrix_2d_dot(x, y, Z, x_dot, y_dot, Z_dot):
+    def interaction_matrix_2d_dot(self, x, y, Z, x_dot, y_dot, Z_dot):
         Z2 = Z * Z
 
         return np.array([
@@ -208,7 +208,7 @@ class IBVS_Geometry:
         ])
     
     # =========================================================
-    def interaction_matrix_3d_dot(x, y, Z, x_dot, y_dot, Z_dot):
+    def interaction_matrix_3d_dot(self, x, y, Z, x_dot, y_dot, Z_dot):
         Z2 = Z * Z
 
         return np.array([
