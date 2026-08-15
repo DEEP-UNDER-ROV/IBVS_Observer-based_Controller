@@ -12,28 +12,10 @@ from sensor_msgs.msg import Image, CompressedImage, CameraInfo
 from mavros_msgs.msg import OverrideRCIn, RCOut
 from apriltag_msgs.msg import AprilTagDetectionArray
 
-from ibvs.constants import *
+from ibvs.parameter import *
 
 
 class IBVS_Telemetry(Node):
-    def compute_desired_corners(self, Z_des):
-        half = TAG_SIZE / 2.0
-    
-        corners_3d = np.array([
-            [-half,  half, Z_des],
-            [ half,  half, Z_des],
-            [ half, -half, Z_des],
-            [-half, -half, Z_des],
-        ])
-    
-        desired = np.zeros((4,2), dtype=np.float32)
-    
-        for i,(X,Y,Z) in enumerate(corners_3d):
-            desired[i] = [X/Z, Y/Z]   # normalized coordinates    
-            
-        return desired
-
-
     def __init__(self):
         super().__init__("IBVS_Telemetry")
         self.get_logger().info("Telemetry Node Started")
@@ -47,8 +29,8 @@ class IBVS_Telemetry(Node):
         self.create_subscription(AprilTagDetectionArray, "/detection1", self.cb_detection, 10)
         self.create_subscription(OverrideRCIn, "/mavros/rc/override", self.cb_rc, 10)
         self.create_subscription(RCOut, "/mavros/rc/out", self.cb_rc_out, 10)
-        self.create_subscription(TwistStamped, "/ibvs/vel", self.cb_vel, 10)
-        self.create_subscription(Float32MultiArray, "/ibvs/error", self.cb_err, 10)
+        self.create_subscription(TwistStamped, "/ibvs/nu_B_hat", self.cb_vel, 10)
+        self.create_subscription(Float32MultiArray, "/ibvs/error/px", self.cb_err, 10)
         
         qos = QoSProfile(depth=10)
         qos.reliability = ReliabilityPolicy.BEST_EFFORT
@@ -67,7 +49,8 @@ class IBVS_Telemetry(Node):
                                        [0, FY, CY],
                                        [0,  0,  1]], dtype=np.float32)
         self.dist_coeffs = np.array(DIST_COEFFS, dtype=np.float32)
-        self.desired = self.compute_desired_corners(Z_DES)
+        
+        self.desired_pts, R = self.compute_desired_corners_pixel(Z_DES=Z_DES, pitch_deg=PITCH_DES_DEG, yaw_deg=YAW_DES_DEG, roll_deg=ROLL_DES_DEG)
 
         
         self.bridge = CvBridge()
@@ -104,6 +87,58 @@ class IBVS_Telemetry(Node):
     def cb_rc_out(self, msg): self.current_rc_out = msg
     def cb_vel(self, msg): self.current_vel = msg
     def cb_err(self, msg): self.current_err = msg
+
+    # =========================================================
+    def compute_desired_corners_pixel(self, Z_DES, pitch_deg=0.0, yaw_deg=0.0, roll_deg=0.0):
+        half = TAG_SIZE / 2.0
+
+        # Tag corners in tag frame (meters)
+        corners = np.array([
+            [-half,  half, 0],
+            [ half,  half, 0],
+            [ half, -half, 0],
+            [-half, -half, 0]
+        ], dtype=float)
+
+        # Desired roll (rotation about image/camera Z-axis)
+        rx = np.deg2rad(pitch_deg)
+        ry = np.deg2rad(yaw_deg)
+        rz = np.deg2rad(roll_deg)
+
+        Rx = np.array([
+            [1,0,0],
+            [0,np.cos(rx),-np.sin(rx)],
+            [0,np.sin(rx), np.cos(rx)]
+        ])
+
+        Ry = np.array([
+            [ np.cos(ry),0,np.sin(ry)],
+            [0,1,0],
+            [-np.sin(ry),0,np.cos(ry)]
+        ])
+
+        Rz = np.array([
+            [np.cos(rz),-np.sin(rz),0],
+            [np.sin(rz), np.cos(rz),0],
+            [0,0,1]
+        ])
+
+        # Rotate corners
+        R = Rz @ Ry @ Rx
+        corners = (R @ corners.T).T
+        corners[:,2] += Z_DES
+
+        # Perspective projection
+        x = corners[:, 0] / corners[:,2]
+        y = corners[:, 1] / corners[:,2]
+
+        # Convert to pixels
+        u = FX * x + CX
+        v = FY * y + CY
+
+        desired_pixels = np.column_stack((u, v))
+
+        return desired_pixels, R
 
     def cb_detection(self, msg):
         if not msg.detections:
@@ -148,12 +183,7 @@ class IBVS_Telemetry(Node):
         stream = color.copy()
         sx, sy = 1.0, 1.0
 
-        desired_pixels = np.zeros_like(self.desired)
-
-        for i,(xd,yd) in enumerate(self.desired):
-            u = FX * xd + CX
-            v = FY * yd + CY
-            desired_pixels[i] = [u,v]
+        desired_pixels = self.desired
 
         ##Draw no index         
         # desired_draw = desired_pixels.astype(np.int32).reshape(-1,1,2)
@@ -234,10 +264,10 @@ class IBVS_Telemetry(Node):
             cv2.putText(stream, f"Surge :{rc.channels[4]:+.2f}", (20,150), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
             cv2.putText(stream, f"Sway  :{rc.channels[5]:+.2f}", (20,170), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
             cv2.putText(stream, f"Heave :{rc.channels[2]:+.2f}", (20,190), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"Yaw   :{rc.channels[3]:+.2f}", (20,210), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"Pitch :{rc.channels[0]:+.2f}", (20,230), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
             cv2.putText(stream, f"Roll  :{rc.channels[1]:+.2f}", (20,250), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-
+            cv2.putText(stream, f"Pitch :{rc.channels[0]:+.2f}", (20,230), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Yaw   :{rc.channels[3]:+.2f}", (20,210), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            
         # Push to QGC
         self.video_writer.write(stream)
 
