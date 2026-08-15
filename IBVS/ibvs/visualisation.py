@@ -29,7 +29,7 @@ class IBVS_Telemetry(Node):
         self.create_subscription(AprilTagDetectionArray, "/detection1", self.cb_detection, 10)
         self.create_subscription(OverrideRCIn, "/mavros/rc/override", self.cb_rc, 10)
         self.create_subscription(RCOut, "/mavros/rc/out", self.cb_rc_out, 10)
-        self.create_subscription(TwistStamped, "/ibvs/nu_B_hat", self.cb_vel, 10)
+        self.create_subscription(TwistStamped, "/ibvs/vel", self.cb_vel, 10)
         self.create_subscription(Float32MultiArray, "/ibvs/error/px", self.cb_err, 10)
         
         qos = QoSProfile(depth=10)
@@ -50,7 +50,7 @@ class IBVS_Telemetry(Node):
                                        [0,  0,  1]], dtype=np.float32)
         self.dist_coeffs = np.array(DIST_COEFFS, dtype=np.float32)
         
-        self.desired_pts, R = self.compute_desired_corners_pixel(Z_DES=Z_DES, pitch_deg=PITCH_DES_DEG, yaw_deg=YAW_DES_DEG, roll_deg=ROLL_DES_DEG)
+        self.desired, R = self.compute_desired_corners_pixel(Z_DES=Z_DES, pitch_deg=PITCH_DES_DEG, yaw_deg=YAW_DES_DEG, roll_deg=ROLL_DES_DEG)
 
         
         self.bridge = CvBridge()
@@ -249,14 +249,15 @@ class IBVS_Telemetry(Node):
                     ex, ey, ez = e[i*3:(i+1)*3]
                     cv2.putText(stream, f"P{i+1}: ex={ex:+.2f}px  ey={ey:+.2f}px  ez={ez:+.2f}m",
                                 (x0, y0 + i * dy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
-            # elif num_elements == 3:
-            #     ex, ey, ez = e
-            #     cv2.putText(stream, f"Center Err: X:{ex:+.2f} Y:{ey:+.2f} Z:{ez:+.2f}",
-            #                 (x0, y0), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
-            # elif num_elements == 2:
-            #     ex, ey = e
-            #     cv2.putText(stream, f"Center Err: X:{ex:+.2f} Y:{ey:+.2f}",
-            #                 (x0, y0), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+            elif num_elements == 8:
+                e = e.reshape(4, 2)
+                for i in range(4):
+                    ex, ey = e[i]
+                    cv2.putText(stream, f"P{i+1}: ex={ex:+.2f}  ey={ey:+.2f}",
+                        (x0, y0 + i * dy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+            else:
+                cv2.putText(stream, f"ERR: {num_elements} values",
+                    (x0, y0), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
 
         # RC inputs
         if self.current_rc is not None:
@@ -264,10 +265,10 @@ class IBVS_Telemetry(Node):
             cv2.putText(stream, f"Surge :{rc.channels[4]:+.2f}", (20,150), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
             cv2.putText(stream, f"Sway  :{rc.channels[5]:+.2f}", (20,170), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
             cv2.putText(stream, f"Heave :{rc.channels[2]:+.2f}", (20,190), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"Roll  :{rc.channels[1]:+.2f}", (20,250), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"Pitch :{rc.channels[0]:+.2f}", (20,230), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
             cv2.putText(stream, f"Yaw   :{rc.channels[3]:+.2f}", (20,210), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            
+            cv2.putText(stream, f"Pitch :{rc.channels[0]:+.2f}", (20,230), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Roll  :{rc.channels[1]:+.2f}", (20,250), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+
         # Push to QGC
         self.video_writer.write(stream)
 
