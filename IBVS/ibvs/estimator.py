@@ -139,9 +139,9 @@ class UKF_Estimator:
 
     # =========================================================
     def reset(self):
-        self.ukf_x = np.zeros(self.nx)
+        self.ukf_x = np.zeros((self.nx, 1), dtype=np.float64)
 
-        P0 = np.zeros((self.nx, 1), dtype=np.float64)
+        P0 = np.zeros((self.nx, self.nx), dtype=np.float64)
         if self.use_3d_matrix_feature:
             P0[self.idx_sC, self.idx_sC] = (np.eye(12) * 1e-3)
         else:
@@ -351,8 +351,9 @@ class UKF_Estimator:
         return (x_pred, P_pred, sigma_pred)
     
     # =========================================================
-    def camera_measurement_model(self, z_camera):
-        z_camera = np.asarray(z_camera, dtype=np.float64).reshape(self.n_ft)
+    def camera_measurement_model(self, state):
+        state = np.asarray(state, dtype=np.float64).reshape(self.nx)
+        z_camera = state[self.idx_sC].copy()
 
         if not self.use_camera_noise:
             return z_camera.copy()
@@ -387,7 +388,6 @@ class UKF_Estimator:
             if not np.isfinite(Z) or Z <= 1e-6:
                 raise ValueError(f"Invalid depth Z[{i}] = {Z}")
 
-            u, v = self.project_to_pixel(X, Y, Z)
             u = FX * X / Z + CX
             v = FY * Y / Z + CY
 
