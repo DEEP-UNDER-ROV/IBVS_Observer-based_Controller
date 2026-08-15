@@ -7,7 +7,7 @@ from cv_bridge import CvBridge
 
 from sensor_msgs.msg import Image
 
-from ibvs.constants import *
+from ibvs.parameter import *
 
 
 class CleanVideoStreamer(Node):
