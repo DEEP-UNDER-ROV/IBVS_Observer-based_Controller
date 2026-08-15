@@ -2,7 +2,7 @@ import numpy as np
 from .parameter import *
 
 class UKF_Estimator:
-    def __init__(self, nx, feature_dim, N=4,
+    def __init__(self, shared, nx, feature_dim, N=4,
         use_3d_matrix_feature=True,
         use_camera_noise=False,
         sigma_u_px=0.5,
@@ -19,9 +19,10 @@ class UKF_Estimator:
 
         # ROS-independent logging hook. The node can pass get_logger().
         self.logger = logger
+        self.shared = shared
         
         self.geometry = IBVS_Geometry(N=self.N, use_3d_matrix_feature=self.use_3d_matrix_feature,)
-        self.shared = Shared_State()
+        # self.shared = Shared_State()
 
         self.T_bc = self.geometry.T_bc
         self.Minv = np.linalg.inv(M)
@@ -136,10 +137,11 @@ class UKF_Estimator:
 
         return s_C, v_B, w_B, b_g, a_B, b_a, b_o
 
+    # =========================================================
     def reset(self):
         self.ukf_x = np.zeros(self.nx)
 
-        P0 = np.zeros((self.nx, self.nx), dtype=np.float64)
+        P0 = np.zeros((self.nx, 1), dtype=np.float64)
         if self.use_3d_matrix_feature:
             P0[self.idx_sC, self.idx_sC] = (np.eye(12) * 1e-3)
         else:
@@ -152,6 +154,16 @@ class UKF_Estimator:
         P0[self.idx_bo, self.idx_bo] = (np.eye(3) * 1e-2)
         
         self.ukf_P = P0
+
+        self.sC_hat[:] = 0
+        self.vB_hat[:] = 0
+        self.wB_hat[:] = 0
+        self.bg_hat[:] = 0
+        self.aB_hat[:] = 0
+        self.ba_hat[:] = 0
+        self.bo_hat[:] = 0
+        self.nu_B_hat[:] = 0
+        self.nu_C_hat[:] = 0
     
     # =========================================================
     def fossen_acceleration(self, nu_B, tau):
