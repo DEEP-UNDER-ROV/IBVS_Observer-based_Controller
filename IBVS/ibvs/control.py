@@ -2,8 +2,9 @@ import numpy as np
 from .parameter import *
 
 class IBVS_Controller:
-    def __init__(self, shared, N=4, use_3d_matrix_feature=True,):
+    def __init__(self, shared, N=4, use_3d_matrix_feature=True, use_delta_matrix=False,):
         self.use_3d_matrix_feature = use_3d_matrix_feature
+        self.use_delta_matrix = use_delta_matrix
         self.N = N
         self.shared = shared
 
@@ -73,24 +74,30 @@ class IBVS_Controller:
         return gamma
 
     # =========================================================
-    def update_L_hat(self, feature_hat, last_delta=None, tag_lost=False):
+    def update_L_hat(self, feature_hat, last_depth=None, last_delta=None, tag_lost=False):
+        if last_delta is None:
+            self.L_hat = None
+            return
+        
         if tag_lost and self.L_hat is not None:
             return self.L_hat
         
         feature_hat = np.asarray(feature_hat, dtype=float).flatten()
 
-        if self.use_3d_matrix_feature:
+        if self.use_3d_matrix_feature and self.use_delta_matrix:
+            self.L_hat = self.geometry.build_interaction_matrix_delta(feature_hat)
+
+        elif self.use_3d_matrix_feature and not self.use_delta_matrix:
             self.L_hat = self.geometry.build_interaction_matrix(feature_hat)
 
-        else:
-            if last_delta is None:
-                self.L_hat = None
-                return
+        elif not self.use_3d_matrix_feature and self.use_delta_matrix:
+            self.L_hat = self.geometry.build_interaction_matrix_delta(feature_hat, last_delta)
 
-            self.L_hat = self.geometry.build_interaction_matrix(feature_hat, last_delta)
+        elif not self.use_3d_matrix_feature and not self.use_delta_matrix:
+            self.L_hat = self.geometry.build_interaction_matrix(feature_hat, last_depth)
 
         return self.L_hat
-
+       
     # =========================================================
     def compute_Ldot(self, dt):
         if self.L_hat is None:
@@ -111,8 +118,12 @@ class IBVS_Controller:
         return self.L_dot
 
     # =========================================================
-    def compute_Ldot_analytical(self, feature_hat, nu_B_hat, last_delta=None):
+    def compute_Ldot_analytical(self, feature_hat, nu_B_hat, last_depth=None, last_delta=None,):
         if self.L_hat is None or nu_B_hat is None:
+            self.L_dot = None
+            return None
+
+        if last_delta is None:
             self.L_dot = None
             return None
 
@@ -123,24 +134,25 @@ class IBVS_Controller:
 
         Ldot_rows = []
 
-        if self.use_3d_matrix_feature:
+        if self.use_3d_matrix_feature and self.use_delta_matrix:
             for i in range(self.N):
                 idx = 3 * i
                 x, y, delta = feature_hat[idx:idx + 3]
                 x_dot = feature_dot[idx, 0]
                 y_dot = feature_dot[idx + 1, 0]
                 delta_dot = feature_dot[idx + 2, 0]
+                Ldot_rows.append(self.geometry.interaction_matrix_delta_3d_dot(x, y, delta, x_dot, y_dot, delta_dot))
 
-                Ldot_rows.append(
-                    self.geometry.interaction_matrix_dot(
-                        x, y, delta, x_dot, y_dot, delta_dot
-                    )
-                )
-        else:
-            if last_delta is None:
-                self.L_dot = None
-                return None
+        elif self.use_3d_matrix_feature and not self.use_delta_matrix:
+            for i in range(self.N):
+                idx = 3 * i
+                x, y, Z = feature_hat[idx:idx + 3]
+                x_dot = feature_dot[idx, 0]
+                y_dot = feature_dot[idx + 1, 0]
+                Z_dot = feature_dot[idx + 2, 0]
+                Ldot_rows.append(self.geometry.interaction_matrix_3d_dot(x, y, Z, x_dot, y_dot, Z_dot))
 
+        elif not self.use_3d_matrix_feature and self.use_delta_matrix:
             last_delta = np.asarray(last_delta, dtype=float).reshape(self.N)
             for i in range(self.N):
                 idx = 2 * i
@@ -149,22 +161,32 @@ class IBVS_Controller:
                 x_dot = feature_dot[idx, 0]
                 y_dot = feature_dot[idx + 1, 0]
 
-                L3 = self.interaction_matrix_3d(x, y, delta)
+                L3 = self.geometry.interaction_matrix_delta_3d(x, y, delta)
                 delta_dot = float(L3[2, :] @ camera_nu.flatten())
 
-                Ldot_rows.append(
-                    self.geometry.interaction_matrix_dot(
-                        x, y, delta, x_dot, y_dot, delta_dot
-                    )
-                )
+                Ldot_rows.append(self.geometry.interaction_matrix_delta_2d_dot(x, y, delta, x_dot, y_dot, delta_dot))
+
+        elif not self.use_3d_matrix_feature and not self.use_delta_matrix:
+            last_depth = np.asarray(last_depth, dtype=float).reshape(self.N)
+            for i in range(self.N):
+                idx = 2 * i
+                x, y = feature_hat[idx:idx + 2]
+                Z = last_depth[i]
+                x_dot = feature_dot[idx, 0]
+                y_dot = feature_dot[idx + 1, 0]
+
+                L3 = self.geometry.interaction_matrix_3d(x, y, Z)
+                Z_dot = float(L3[2, :] @ camera_nu.flatten())
+
+                Ldot_rows.append(self.geometry.interaction_matrix_2d_dot(x, y, Z, x_dot, y_dot, Z_dot))
 
         self.L_dot = np.vstack(Ldot_rows)
         return self.L_dot
     
     # =========================================================
-    def compute_control_tau_debug(self, feature_hat, last_delta, nu_B_hat, distance, e_norm, e_pixel, dt, tag_lost=False,):
+    def compute_control_tau(self, feature_hat, last_depth, last_delta, nu_B_hat, distance, e_norm, e_pixel, dt, tag_lost=False,):
         _ = distance
-        self.update_L_hat(feature_hat, last_delta, tag_lost)
+        self.update_L_hat(feature_hat, last_depth, last_delta, tag_lost)
         self.compute_Ldot(dt)
 
         if self.L_hat is None or self.L_dot is None:
@@ -195,17 +217,17 @@ class IBVS_Controller:
         return tau.reshape(6)
 
     # =========================================================
-    def compute_control_tau_DLS(self, feature_hat, last_delta, nu_B_hat, distance, e_norm, e_pixel, dt, tag_lost=False,):
+    def compute_control_tau_DLS(self, feature_hat, last_depth, last_delta, nu_B_hat, distance, e_norm, e_pixel, dt, tag_lost=False,):
         _ = distance
-        self.update_L_hat(feature_hat, last_delta, tag_lost)
+        nu_B_hat = np.asarray(nu_B_hat, dtype=float).reshape(6, 1)
+        e_norm = np.asarray(e_norm, dtype=float).reshape(-1, 1)
+        e_pixel = np.asarray(e_pixel, dtype=float).reshape(-1, 1)
+
+        self.update_L_hat(feature_hat, last_depth, last_delta, tag_lost)
         self.compute_Ldot(dt)
 
         if self.L_hat is None or self.L_dot is None:
             return np.zeros(6)
-
-        nu_B_hat = np.asarray(nu_B_hat, dtype=float).reshape(6, 1)
-        e_norm = np.asarray(e_norm, dtype=float).reshape(-1, 1)
-        e_pixel = np.asarray(e_pixel, dtype=float).reshape(-1, 1)
 
         alpha = self.compute_alpha(self.L_hat)
         gamma = self.compute_gamma(nu_B_hat)
@@ -230,6 +252,42 @@ class IBVS_Controller:
 
         return tau.reshape(6)
 
+    # =========================================================
+    def compute_control_tau_L_analytical(self, feature_hat, last_depth, last_delta, nu_B_hat, distance, e_norm, e_pixel, dt, tag_lost=False,):
+        _ = distance
+        nu_B_hat = np.asarray(nu_B_hat, dtype=float).reshape(6, 1)
+        e_norm = np.asarray(e_norm, dtype=float).reshape(-1, 1)
+        e_pixel = np.asarray(e_pixel, dtype=float).reshape(-1, 1)
+
+        self.update_L_hat(feature_hat, last_depth, last_delta, tag_lost)
+        self.compute_Ldot_analytical(feature_hat, nu_B_hat, last_depth, last_delta)
+
+        if self.L_hat is None or self.L_dot is None:
+            return np.zeros(6)
+
+        alpha = self.compute_alpha(self.L_hat)
+        gamma = self.compute_gamma(nu_B_hat)
+
+        A = alpha.T @ alpha + mu**2 * np.eye(6)
+
+        e_dot_hat = self.L_hat @ self.T_bc @ nu_B_hat
+        l_dot = self.L_dot @ self.T_bc @ nu_B_hat
+        gams = alpha @ gamma
+
+        tau_P = - self.Kp @ np.linalg.solve(A, alpha.T @ e_norm).reshape(6)
+        tau_D = - self.Kd @ np.linalg.solve(A, alpha.T @ e_dot_hat).reshape(6)
+        tau_L = - np.linalg.solve(A, alpha.T @ l_dot).reshape(6)
+        tau_gamma = np.linalg.solve(A, alpha.T @ gams).reshape(6)
+
+        tau = tau_P + tau_D + tau_L + tau_gamma
+
+        if np.max(np.abs(e_pixel)) < dead_band:
+            tau[:] = 0
+
+        self.limit_force(tau)
+
+        return tau.reshape(6)
+    
     # =========================================================
     def compute_control_ibvs1(self, L, distance, e_norm, e_pixel, dt):
         _ = distance
