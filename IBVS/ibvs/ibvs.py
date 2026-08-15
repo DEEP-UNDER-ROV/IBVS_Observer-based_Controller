@@ -71,13 +71,15 @@ class IBVSRCController(Node):
 
         self.shared = Shared_State()
         self.controller = IBVS_Controller(shared=self.shared, 
+                                          N=self.N,
                                           use_3d_matrix_feature=self.use_3d_matrix_feature, 
-                                          N=self.N,)
+                                          use_delta_matrix=self.use_delta_matrix,)
         self.estimator = UKF_Estimator(shared=self.shared, 
                                        nx=self.nx, 
                                        feature_dim=self.n_ft,
                                        N=self.N, 
                                        use_3d_matrix_feature=self.use_3d_matrix_feature, 
+                                       use_delta_matrix=self.use_delta_matrix,
                                        use_camera_noise=self.use_camera_noise, 
                                        logger=self.get_logger(),)
         self.geometry = IBVS_Geometry(N=self.N, 
@@ -93,6 +95,7 @@ class IBVSRCController(Node):
     def declare_state(self):
         # ---------------------- System Flags ----------------------
         self.use_3d_matrix_feature = True
+        self.use_delta_matrix = False
         self.use_camera_ukf = True
         self.use_camera_noise = False
 
@@ -208,16 +211,18 @@ class IBVSRCController(Node):
         if dt <= 0.0 or dt > 0.2:
             return
 
-        distance = self.latest_distance
+        distance_depth = self.latest_distance_depth
+        distance_delta = self.latest_distance_delta 
         e_norm = self.latest_e_norm.copy()
         e_pixel = self.latest_e_pixel.copy()
         feature_hat = self.estimator.ukf_x[self.estimator.idx_sC].copy()
 
-        tau = self.controller.compute_control_tau_DLS(
+        tau = self.controller.compute_control_tau(
             feature_hat = feature_hat,
+            last_depth = self.shared.last_depth,
             last_delta = self.shared.last_delta,
             nu_B_hat = self.nu_B_hat,
-            distance = distance,
+            distance = distance_depth,
             e_norm = e_norm,
             e_pixel = e_pixel,
             dt = dt,
@@ -267,7 +272,9 @@ class IBVSRCController(Node):
         if not self.shared.ukf_initialized:
             return
 
-        x_pred, P_pred, sigma_pred = self.estimator.ukf_predict(self.estimator.ukf_x, self.estimator.ukf_P, dt, None)
+        last_depth = self.shared.last_depth
+        last_delta = self.shared.last_delta
+        x_pred, P_pred, sigma_pred = self.estimator.ukf_predict(self.estimator.ukf_x, self.estimator.ukf_P, dt, last_depth, last_delta)
         self.estimator.ukf_x, self.estimator.ukf_P, imu_innovation, S_imu, K_imu, z_imu_mean = self.estimator.ukf_update_imu(x_pred, P_pred, sigma_pred, z_imu, R_NB)
         self.update_estimator()
         self.ukf_logging(source="imu", innovation=imu_innovation, K=K_imu, z=z_imu)
@@ -278,8 +285,6 @@ class IBVSRCController(Node):
          
     # =========================================================
     def cb_corners(self, msg):
-        self.shared.camera_measurement_valid = False
-
         if self.detected_uv is None:
             return
     
@@ -299,7 +304,7 @@ class IBVSRCController(Node):
         if result is None:
             return
 
-        distance, e_pixel, e_norm, measurement, e_pixel_img, deltas = result
+        distance_depth, distance_delta, e_pixel, e_norm, measurement, e_pixel_img, depth, delta = result
 
         z_camera = measurement.flatten()
 
@@ -311,9 +316,7 @@ class IBVSRCController(Node):
 
         if not self.shared.ukf_initialized:
             self.estimator.initialize_ukf_from_camera(z_camera)
-            self.update_estimator()
             self.get_logger().info("UKF initialized from stereo camera.")
-
             return
 
         if self.use_camera_ukf:
@@ -324,7 +327,8 @@ class IBVSRCController(Node):
 
             self.last_camera_innovation = cam_innovation.copy()
 
-        self.latest_distance = distance
+        self.latest_distance_depth = distance_depth
+        self.latest_distance_delta = distance_delta
         self.latest_e_norm = e_norm.copy()
         self.latest_e_pixel = e_pixel_img.copy()
 
@@ -405,6 +409,7 @@ class IBVSRCController(Node):
     def cb_detection(self, msg):
         if len(msg.detections) == 0:
             self.detected_uv = None
+            self.shared.last_depth = None
             self.shared.last_delta = None
             return
 
@@ -424,6 +429,7 @@ class IBVSRCController(Node):
         e_pixel_img = []
         e_norm = []
         measurement = []
+        depth = []
         deltas = []
 
         pts = np.array([[p.x, p.y, p.z] for p in msg.polygon.points])
@@ -440,16 +446,27 @@ class IBVSRCController(Node):
             xd, yd = self.pixel_to_norm(ud, vd)
             delta_des = bline / Z_DES
 
-            deltas.append(Z)
+            depth.append(Z)
+            deltas.append(delta)
             e_pixel_img.extend([u - ud, v - vd])
 
-            if self.use_3d_matrix_feature: # Matrix 3x6 
+            if self.use_3d_matrix_feature and self.use_delta_matrix:
+                measurement.extend([x, y, delta])
+                e_pixel.extend([u - ud, v - vd, delta - delta_des])
+                e_norm.extend([x - xd, y - yd, delta - delta_des])
+
+            elif self.use_3d_matrix_feature and not self.use_delta_matrix:
                 measurement.extend([x, y, Z])
                 e_pixel.extend([u - ud, v - vd, Z - Z_DES])
                 e_norm.extend([x - xd, y - yd, Z - Z_DES])
+
+            elif not self.use_3d_matrix_feature and self.use_delta_matrix:
+                measurement.extend([x, y])
+                e_pixel.extend([u - ud, v - vd])
+                e_norm.extend([x - xd, y - yd])
             
-            else: # Matrix 2x6
-                measurement.extend([x, y, Z])
+            elif not self.use_3d_matrix_feature and not self.use_delta_matrix:
+                measurement.extend([x, y])
                 e_pixel.extend([u - ud, v - vd])
                 e_norm.extend([x - xd, y - yd])
 
@@ -459,10 +476,13 @@ class IBVSRCController(Node):
         measurement = measurement.reshape(-1, 1)
         e_pixel_img = np.asarray(e_pixel_img).reshape(-1, 1)
         deltas = np.asarray(deltas, dtype=np.float64)
-        distance = np.mean(deltas)
+        depth = np.asarray(depth, dtype=np.float64)
+        distance_depth = np.mean(depth)
+        distance_delta = np.mean(deltas)
         self.shared.last_delta = deltas.copy()
+        self.shared.last_depth = depth.copy()
 
-        return distance, e_pixel, e_norm, measurement, e_pixel_img, deltas
+        return distance_depth, distance_delta, e_pixel, e_norm, measurement, e_pixel_img, depth, delta
 
     # =========================================================
     def quaternion_to_rotation(self, q):
@@ -553,14 +573,6 @@ class IBVSRCController(Node):
 
         measurement_norm = np.linalg.norm(z)
 
-        P_nu = self.estimator.ukf_P[np.ix_(self.estimator.idx_nuB, self.estimator.idx_nuB)]
-        P_nu = 0.5 * (P_nu + P_nu.T)
-
-        sigma_nu = np.sqrt(np.maximum(np.diag(P_nu), 0.0))
-
-        nu_B = np.concatenate([self.estimator.ukf_x[self.estimator.idx_vB], 
-                               self.estimator.ukf_x[self.estimator.idx_wB]])
-
         msg = Float32MultiArray()
         msg.data = [
             float(source_id),
@@ -568,9 +580,6 @@ class IBVSRCController(Node):
             float(gain_norm),
             float(state_correction_norm),
             float(measurement_norm),
-
-            *sigma_nu.tolist(),
-            *nu_B.tolist(),
         ]
 
         self.ukf_data_pub.publish(msg)
