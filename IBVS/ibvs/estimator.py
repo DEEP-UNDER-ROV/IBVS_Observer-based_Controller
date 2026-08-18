@@ -5,11 +5,6 @@ class UKF_Estimator:
     def __init__(self, shared, nx, feature_dim, N=4,
         use_3d_matrix_feature=True,
         use_delta_matrix=False,
-        use_camera_noise=False,
-        sigma_u_px=0.5,
-        sigma_v_px=0.5,
-        sigma_Z_m=0.005,
-        camera_noise_seed=None,
         logger=None,
     ):
         self.nx = nx
@@ -41,21 +36,31 @@ class UKF_Estimator:
         ])
         self.R_camera = np.eye(self.n_ft, dtype=np.float64) * 1e-4
 
-        # Camera measurement-noise injection settings.
-        self.use_camera_noise = bool(use_camera_noise)
-        self.sigma_u_px = float(sigma_u_px)
-        self.sigma_v_px = float(sigma_v_px)
-        self.sigma_Z_m = float(sigma_Z_m)
-        self.camera_noise_rng = np.random.default_rng(camera_noise_seed)
+        self.sigma_u_px = float(0.334788)
+        self.sigma_v_px = float(0.363501)
+        self.sigma_Z = float(0.01)
 
-        self.idx_sC = slice(0, self.n_ft)
+        self.sigma_x = self.sigma_u_px / FX
+        self.sigma_y = self.sigma_v_px / FY
+
+        # Build R_camera for [u, v, Z] measurements.
+        self.R_camera = np.zeros((self.n_ft, self.n_ft),dtype=np.float64)
+
+        for i in range(self.N):
+            idx = 3 * i
+
+            self.R_camera[idx, idx] = self.sigma_x**2
+            self.R_camera[idx + 1, idx + 1] = self.sigma_y**2
+            self.R_camera[idx + 2, idx + 2] = self.sigma_Z**2
+
+        self.idx_s = slice(0, self.n_ft)
         self.idx_vB = slice(self.n_ft, self.n_ft + 3)
         self.idx_wB = slice(self.n_ft + 3, self.n_ft + 6)
-        self.idx_bg = slice(self.n_ft + 6, self.n_ft + 9)
-        self.idx_aB = slice(self.n_ft + 9, self.n_ft + 12)
-        self.idx_ba = slice(self.n_ft + 12, self.n_ft + 15)
-        self.idx_bo = slice(self.n_ft + 15, self.n_ft + 18)
-
+        self.idx_bo = slice(self.n_ft + 6, self.n_ft + 9)
+        self.idx_bg = slice(self.n_ft + 9, self.n_ft + 12)
+        self.idx_aB = slice(self.n_ft + 12, self.n_ft + 15)
+        self.idx_ba = slice(self.n_ft + 15, self.n_ft + 18)
+        
         self.idx_nuB = np.concatenate([
             np.arange(self.idx_vB.start, self.idx_vB.stop),
             np.arange(self.idx_wB.start, self.idx_wB.stop)
@@ -72,7 +77,7 @@ class UKF_Estimator:
         self.q_vB = 1e-3
         self.q_wB = 1e-3
 
-        self.q_aB = 1e-2
+        self.q_aB = 1e-5
 
         self.sigma_bg_rw = 7.692845772051322e-7
         self.sigma_ba_rw = 0.003597694747410243
@@ -99,10 +104,10 @@ class UKF_Estimator:
         self.sC_hat = np.zeros(self.n_ft)
         self.vB_hat = np.zeros(3)
         self.wB_hat = np.zeros(3)
+        self.bo_hat = np.zeros(3)
         self.bg_hat = np.zeros(3)
         self.aB_hat = np.zeros(3)
-        self.ba_hat = np.zeros(3)
-        self.bo_hat = np.zeros(3)
+        self.ba_hat = np.zeros(3)       
         self.nu_B_hat = np.zeros((6, 1))
         self.nu_C_hat = np.zeros((6, 1))
 
@@ -112,32 +117,32 @@ class UKF_Estimator:
             self.logger.info(text)
 
     # =========================================================
-    def pack_state(self, s_C, v_B, w_B, b_g, a_B, b_a, b_o): 
+    def pack_state(self, s_C, v_B, w_B, b_o, b_g, a_B, b_a): 
         state = np.zeros(self.nx, dtype=np.float64)
 
-        state[self.idx_sC] = np.asarray(s_C, dtype=np.float64).reshape(-1)
+        state[self.idx_s] = np.asarray(s_C, dtype=np.float64).reshape(-1)
         state[self.idx_vB] = np.asarray(v_B, dtype=np.float64).reshape(-1)
         state[self.idx_wB] = np.asarray(w_B, dtype=np.float64).reshape(-1)
+        state[self.idx_bo] = np.asarray(b_o, dtype=np.float64).reshape(-1)
         state[self.idx_bg] = np.asarray(b_g, dtype=np.float64).reshape(-1)
         state[self.idx_aB] = np.asarray(a_B, dtype=np.float64).reshape(-1)
         state[self.idx_ba] = np.asarray(b_a, dtype=np.float64).reshape(-1)
-        state[self.idx_bo] = np.asarray(b_o, dtype=np.float64).reshape(-1)
-
+        
         return state
     
     # =========================================================
     def unpack_state(self, state):
         state = np.asarray(state, dtype=np.float64).reshape(-1)
 
-        s_C = state[self.idx_sC].copy()
+        s_C = state[self.idx_s].copy()
         v_B = state[self.idx_vB].copy()
         w_B = state[self.idx_wB].copy()
+        b_o = state[self.idx_bo].copy()
         b_g = state[self.idx_bg].copy()
         a_B = state[self.idx_aB].copy()
         b_a = state[self.idx_ba].copy()
-        b_o = state[self.idx_bo].copy()
-
-        return s_C, v_B, w_B, b_g, a_B, b_a, b_o
+        
+        return s_C, v_B, w_B, b_o, b_g, a_B, b_a
 
     # =========================================================
     def reset(self):
@@ -145,25 +150,25 @@ class UKF_Estimator:
 
         P0 = np.zeros((self.nx, self.nx), dtype=np.float64)
         if self.use_3d_matrix_feature:
-            P0[self.idx_sC, self.idx_sC] = (np.eye(12) * 1e-3)
+            P0[self.idx_s, self.idx_s] = (np.eye(12) * 1e-3)
         else:
-            P0[self.idx_sC, self.idx_sC] = (np.eye(8) * 1e-3)
+            P0[self.idx_s, self.idx_s] = (np.eye(8) * 1e-3)
         P0[self.idx_vB, self.idx_vB] = (np.eye(3) * 1e-2)
         P0[self.idx_wB, self.idx_wB] = (np.eye(3) * 1e-2)
+        P0[self.idx_bo, self.idx_bo] = (np.eye(3) * 1e-2)
         P0[self.idx_bg, self.idx_bg] = (np.eye(3) * 1e-4)
         P0[self.idx_aB, self.idx_aB] = (np.eye(3) * 1e-4)
         P0[self.idx_ba, self.idx_ba] = (np.eye(3) * 1e-2)
-        P0[self.idx_bo, self.idx_bo] = (np.eye(3) * 1e-2)
-        
+     
         self.ukf_P = P0
 
         self.sC_hat[:] = 0
         self.vB_hat[:] = 0
         self.wB_hat[:] = 0
+        self.bo_hat[:] = 0
         self.bg_hat[:] = 0
         self.aB_hat[:] = 0
         self.ba_hat[:] = 0
-        self.bo_hat[:] = 0
         self.nu_B_hat[:] = 0
         self.nu_C_hat[:] = 0
     
@@ -195,13 +200,13 @@ class UKF_Estimator:
             adaptive_q_vB = self.q_vB
             adaptive_q_wB = self.q_wB
 
-        Q[self.idx_sC, self.idx_sC] = np.diag(q_Sc)
+        Q[self.idx_s, self.idx_s] = np.diag(q_Sc)
         Q[self.idx_vB, self.idx_vB] = (np.eye(3) * adaptive_q_vB)
         Q[self.idx_wB, self.idx_wB] = (np.eye(3) * adaptive_q_wB)
+        Q[self.idx_bo, self.idx_bo] = (np.eye(3) * self.sigma_bo_rw**2 * dt)
         Q[self.idx_bg, self.idx_bg] = (np.eye(3) * self.sigma_bg_rw**2 * dt)
         Q[self.idx_aB, self.idx_aB] = (np.eye(3) * self.q_aB)
         Q[self.idx_ba, self.idx_ba] = (np.eye(3) * self.sigma_ba_rw**2 * dt)
-        Q[self.idx_bo, self.idx_bo] = (np.eye(3) * self.sigma_bo_rw**2 * dt)
 
         return Q
 
@@ -212,24 +217,24 @@ class UKF_Estimator:
         s_C0 = z_camera.copy()
         v_B0 = np.zeros(3)
         w_B0 = np.zeros(3)
+        b_o0 = np.zeros(3)
         b_g0 = np.zeros(3)
         a_B0 = np.zeros(3)
         b_a0 = np.zeros(3)
-        b_o0 = np.zeros(3)
 
-        self.ukf_x = self.pack_state(s_C0, v_B0, w_B0, b_g0, a_B0, b_a0, b_o0)
+        self.ukf_x = self.pack_state(s_C0, v_B0, w_B0, b_o0, b_g0, a_B0, b_a0)
 
         P0 = np.zeros((self.nx, self.nx), dtype=np.float64)
         if self.use_3d_matrix_feature:
-            P0[self.idx_sC, self.idx_sC] = (np.eye(12) * 1e-3)
+            P0[self.idx_s, self.idx_s] = (np.eye(12) * 1e-3)
         else:
-            P0[self.idx_sC, self.idx_sC] = (np.eye(8) * 1e-3)
+            P0[self.idx_s, self.idx_s] = (np.eye(8) * 1e-3)
         P0[self.idx_vB, self.idx_vB] = (np.eye(3) * 1e-2)
         P0[self.idx_wB, self.idx_wB] = (np.eye(3) * 1e-2)
+        P0[self.idx_bo, self.idx_bo] = (np.eye(3) * 1e-2)
         P0[self.idx_bg, self.idx_bg] = (np.eye(3) * 1e-4)
         P0[self.idx_aB, self.idx_aB] = (np.eye(3) * 1e-4)
-        P0[self.idx_ba, self.idx_ba] = (np.eye(3) * 1e-2)
-        P0[self.idx_bo, self.idx_bo] = (np.eye(3) * 1e-2)
+        P0[self.idx_ba, self.idx_ba] = (np.eye(3) * 1e-2)  
         
         self.ukf_P = P0
         self.shared.ukf_initialized = True
@@ -311,7 +316,7 @@ class UKF_Estimator:
     def ukf_process_model(self, state, dt, last_depth=None, last_delta=None,):
         state = np.asarray(state, dtype=np.float64).reshape(self.nx)
 
-        s_C, v_B, w_B, b_g, a_B, b_a, b_o = self.unpack_state(state)
+        s_C, v_B, w_B, b_o, b_g, a_B, b_a = self.unpack_state(state)
 
         if self.shared.tag_lost:
             v_B = v_B * 0.95 
@@ -320,6 +325,8 @@ class UKF_Estimator:
 
         nu_B = np.concatenate([v_B, w_B])
         nu_C = self.T_bc @ nu_B
+        nu_C[0] = 0.0
+        v_B[1] = 0
 
         if self.use_3d_matrix_feature and self.use_delta_matrix:
             L_sigma = self.geometry.build_interaction_matrix_delta(s_C)
@@ -334,12 +341,12 @@ class UKF_Estimator:
         vB_next = v_B + dt * a_B
         wB_next = w_B + dt * b_o
 
+        bo_next = b_o
         bg_next = b_g
         aB_next = a_B
         ba_next = b_a
-        bo_next = b_o
 
-        return self.pack_state(sC_next, vB_next, wB_next, bg_next, aB_next, ba_next, bo_next)
+        return self.pack_state(sC_next, vB_next, wB_next, bo_next, bg_next, aB_next, ba_next)
 
     # =========================================================
     def ukf_predict(self, x, P, dt, last_depth=None, last_delta=None,):
@@ -361,28 +368,14 @@ class UKF_Estimator:
     # =========================================================
     def camera_measurement_model(self, state):
         state = np.asarray(state, dtype=np.float64).reshape(self.nx)
-        z_camera = state[self.idx_sC].copy()
+        z_camera = state[self.idx_s].copy()
 
-        if not self.use_camera_noise:
-            return z_camera.copy()
-
-        sigma_x = self.sigma_u_px / FX
-        sigma_y = self.sigma_v_px / FY
-        sigma_Z = self.sigma_Z_m
-        noise = np.zeros(self.n_ft, dtype=np.float64)
-
-        for i in range(self.N):
-            idx = 3 * i
-            noise[idx] = self.camera_noise_rng.normal(0.0, sigma_x)
-            noise[idx + 1] = self.camera_noise_rng.normal(0.0, sigma_y)
-            noise[idx + 2] = self.camera_noise_rng.normal(0.0, sigma_Z)
-
-        return z_camera + noise
+        return z_camera
 
     # =========================================================
     def camera_measurement_model_pinhole(self, state):
         state = np.asarray(state, dtype=np.float64).reshape(self.nx)
-        s = state[self.idx_sC]
+        s = state[self.idx_s]
 
         measurement = []
 
@@ -435,7 +428,7 @@ class UKF_Estimator:
     def imu_measurement_model(self, state, R_NB):
         state = np.asarray(state, dtype=np.float64).reshape(self.nx)
 
-        s_C, v_B, w_B, b_g, a_B, b_a, b_o = self.unpack_state (state)
+        s_C, v_B, w_B, b_o, b_g, a_B, b_a = self.unpack_state (state)
         
         g_N = np.array([0.0, 0.0, 9.80665],dtype=np.float64)
         g_B = R_NB.T @ g_N
