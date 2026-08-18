@@ -233,7 +233,7 @@ class IBVS_Geometry:
         return np.array([
             [-delta_dot / b,     0.0,        (delta_dot * x + delta * x_dot) / b, x_dot * y + x * y_dot,     -2.0 * x * x_dot,      y_dot],
             [      0.0,      -delta_dot / b, (delta_dot * y + delta * y_dot) / b,    2.0 * y * y_dot,    -(x_dot * y + x * y_dot), -x_dot],
-            [      0.0,          0.0,                -delta_dot / b,                     y_dot,                   x_dot,              0.0]
+            [      0.0,          0.0,                -delta_dot / b,                    -y_dot,                   x_dot,              0.0]
         ])
 
 class Shared_State:
