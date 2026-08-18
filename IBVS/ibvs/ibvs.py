@@ -80,7 +80,6 @@ class IBVSRCController(Node):
                                        N=self.N, 
                                        use_3d_matrix_feature=self.use_3d_matrix_feature, 
                                        use_delta_matrix=self.use_delta_matrix,
-                                       use_camera_noise=self.use_camera_noise, 
                                        logger=self.get_logger(),)
         self.geometry = IBVS_Geometry(N=self.N, 
                                       use_3d_matrix_feature=self.use_3d_matrix_feature,)
@@ -97,7 +96,6 @@ class IBVSRCController(Node):
         self.use_3d_matrix_feature = True
         self.use_delta_matrix = False
         self.use_camera_ukf = True
-        self.use_camera_noise = False
 
         # --------------- Perception & Tracking State ---------------
         self.depth_img = None
@@ -154,14 +152,14 @@ class IBVSRCController(Node):
 
     # =========================================================
     def update_estimator(self):
-        self.sC_hat = self.estimator.ukf_x[self.estimator.idx_sC].copy()
+        self.sC_hat = self.estimator.ukf_x[self.estimator.idx_s].copy()
         self.vB_hat = self.estimator.ukf_x[self.estimator.idx_vB].copy()
         self.wB_hat = self.estimator.ukf_x[self.estimator.idx_wB].copy()
+        self.bo_hat = self.estimator.ukf_x[self.estimator.idx_bo].copy()
         self.bg_hat = self.estimator.ukf_x[self.estimator.idx_bg].copy()
         self.aB_hat = self.estimator.ukf_x[self.estimator.idx_aB].copy()
         self.ba_hat = self.estimator.ukf_x[self.estimator.idx_ba].copy()
-        self.bo_hat = self.estimator.ukf_x[self.estimator.idx_bo].copy()
-
+        
         self.nu_B_hat = np.concatenate([self.vB_hat, self.wB_hat]).reshape(6, 1)
         self.nu_C_hat = self.controller.T_bc @ self.nu_B_hat
 
@@ -215,7 +213,7 @@ class IBVSRCController(Node):
         distance_delta = self.latest_distance_delta 
         e_norm = self.latest_e_norm.copy()
         e_pixel = self.latest_e_pixel.copy()
-        feature_hat = self.estimator.ukf_x[self.estimator.idx_sC].copy()
+        feature_hat = self.estimator.ukf_x[self.estimator.idx_s].copy()
 
         tau = self.controller.compute_control_tau(
             feature_hat = feature_hat,
