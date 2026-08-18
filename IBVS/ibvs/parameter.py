@@ -173,7 +173,7 @@ class IBVS_Geometry:
         return np.array([
             [-delta/bline,       0,          delta * x/bline,    x*y,   -(1 + x*x),  y],
             [     0,       -delta/bline,     delta * y/bline,  1 + y*y,    -x*y,    -x],
-            [     0,             0,          -delta / bline,      y,         x,      0]
+            [     0,             0,          -delta / bline,     -y,         x,      0]
         ])
 
     # =========================================================
