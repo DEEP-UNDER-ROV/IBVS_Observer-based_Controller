@@ -146,16 +146,9 @@ class IBVS_Telemetry(Node):
             return
     
         det = msg.detections[0]
+        self.detected_corners = np.array([[c.x, c.y] for c in det.corners],dtype=np.float32)
     
-        pts = np.array([[c.x, c.y] for c in det.corners], dtype=np.float32)
-        self.detected_corners = np.array(
-            [[c.x, c.y] for c in det.corners],
-            dtype=np.float32
-        )
-    
-    # ---------------- Callbacks for subscribed image + corners ----------------
     def cb_corners(self, msg):
-        # store latest corners polygon (assumed to contain Point32 entries with pixel u,v in x,y)
         self.last_poly = msg
 
     def cb_image(self, msg):
@@ -165,79 +158,16 @@ class IBVS_Telemetry(Node):
             return
 
         stamp = msg.header.stamp
-
-        undistorted_pts = None
-        raw_pts = None
-
-        # if apriltag corners available, extract and undistort
-        if self.last_poly is not None and len(self.last_poly.polygon.points) >= 4:
-            pts = self.last_poly.polygon.points
-            raw_pts = np.array([[p.x, p.y] for p in pts], dtype=float)
-            pts_cv = raw_pts.reshape(-1, 1, 2)
-            # und = cv2.undistortPoints(pts_cv, self.camera_matrix, self.dist_coeffs, P=self.camera_matrix)
-            # undistorted_pts = und.reshape(-1, 2)
-            undistorted_pts = raw_pts
-
-        # prepare stream for overlay
-        h, w = color.shape[:2]
         stream = color.copy()
-        sx, sy = 1.0, 1.0
 
         desired_pixels = self.desired
 
-        ##Draw no index         
-        # desired_draw = desired_pixels.astype(np.int32).reshape(-1,1,2)
-        # cv2.polylines(stream, [desired_draw], True, (0, 0, 255), 2)
-
-        #Draw Index for desired corner
         desired_draw = desired_pixels.astype(np.int32).reshape(-1,1,2)
         cv2.polylines(stream, [desired_draw], True, (0, 0, 255), 2)
-
-        # # Draw desired corner numbers
-        # for i, (u, v) in enumerate(desired_pixels.astype(np.int32)):
-        #     cv2.circle(stream, (u, v), 4, (0, 0, 255), -1)
-        #     cv2.putText(
-        #         stream,
-        #         str(i),
-        #         (u + 8, v - 8),
-        #         cv2.FONT_HERSHEY_SIMPLEX,
-        #         0.6,
-        #         (0, 0, 255),
-        #         2)
 
         if self.detected_corners is not None:
             pts = self.detected_corners.reshape((-1,1,2)).astype(np.int32)
             cv2.polylines(stream,[pts],True,(0,255,0),2)
-
-            # # Draw detected corner numbers
-            # for i, p in enumerate(self.detected_corners.astype(np.int32)):
-            #     u, v = p
-            #     cv2.circle(stream, (u, v), 4, (0,255,0), -1)
-            #     cv2.putText(
-            #         stream,
-            #         str(i),
-            #         (u + 8, v - 8),
-            #         cv2.FONT_HERSHEY_SIMPLEX,
-            #         0.6,
-            #         (0,255,0),
-            #         2
-            #     )
-
-        if raw_pts is not None:
-            pts_r = np.asarray(raw_pts).reshape(-1, 2)
-            pts_r_draw = (pts_r * [sx, sy]).astype(np.int32)
-            cv2.polylines(stream, [pts_r_draw], True, (0, 180, 180), 1)
-
-            # for i, (u, v) in enumerate(pts_r_draw):
-            #     cv2.putText(
-            #         stream,
-            #         f"R{i}",
-            #         (u + 8, v + 15),
-            #         cv2.FONT_HERSHEY_SIMPLEX,
-            #         0.45,
-            #         (0,180,180),
-            #         1
-            #     )
 
         # --- Error Overlay ---
         if self.current_err is not None:
