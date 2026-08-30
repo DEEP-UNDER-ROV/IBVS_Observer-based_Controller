@@ -1,8 +1,9 @@
-# Stereo-enhanced Image-based Visual Servoing (IBVS) for Underwater ROV with Observer-based Controller using Fused Stereo Camera and IMU sensor
+# Stereo-enhanced Image-based Visual Servoing (IBVS) for U-ROV with Observer-based Controller
 
-A ROS2 implementation of **Stereo-enhanced Image-based Visual Servoing (IBVS)** for underwater ROV positioning using **stereo vision**, **AprilTag feature extraction**, and a **PI-augmented control law** via ssh communication between Ground Station and the U-ROV.
+A ROS2 implementation of **Stereo-enhanced Image-based Visual Servoing (IBVS)** for Underwater ROV with Observer-based controller using **stereo vision camera**, **AprilTag feature extraction**, **pixhawk IMU sensor**, and a **PD-augmented control law** via ssh communication between Ground Station and the U-ROV.
 
-<img width="400" height="235" alt="frame_proj" src="https://github.com/user-attachments/assets/722671fe-7fa3-4187-a49f-8d7075927780" /> <img width="400" height="235" alt="U-ROVs2" src="https://github.com/user-attachments/assets/c78c6581-40a1-4368-84cd-c6bfb52926f0" />
+<img width="536" height="305" alt="frame_proj" src="https://github.com/user-attachments/assets/735eaa02-1c44-456e-be8e-baf356a61081" /> 
+ <img width="400" height="235" alt="U-ROVs2" src="https://github.com/user-attachments/assets/c78c6581-40a1-4368-84cd-c6bfb52926f0" />
 
 
 
@@ -26,13 +27,19 @@ Feature Extraction per each corner (u,v,Z)
 Image Error Computation
        │
        ▼
+UKF Prediction
+       │
+       ▼
+UKF Update
+       │
+       ▼
 Interaction Matrix (Ls)
        │
        ▼
-PI-Augmented IBVS Controller
+PD-Augmented IBVS Controller
        │
        ▼
-Body Velocity Command
+Force Command
        │
        ▼
 MAVROS RC Override
@@ -46,6 +53,7 @@ ROV Motion
 * ROS2 Jazzy
 * Python 3.10+
 * OpenCV
+* QGround Control
 * DU Perception AprilTag Triangulate Library <br>
   https://github.com/DEEP-UNDER-ROV/DU_Perception_Apriltag_Triangulate
 * cv_bridge
