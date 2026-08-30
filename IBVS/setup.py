@@ -27,6 +27,7 @@ setup(
             'stream = ibvs.streamer:main',
             'visualize = ibvs.visualisation:main',
             'ibvs = ibvs.ibvs:main',
+            'ibvs2 = ibvs.ibvs2:main',
             'heave_trim = ibvs.heave_trim:main',
         ],
     },
