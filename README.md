@@ -2,7 +2,7 @@
 
 A ROS2 implementation of **Stereo-enhanced Image-based Visual Servoing (IBVS)** for Underwater ROV with Observer-based controller using **stereo vision camera**, **AprilTag feature extraction**, **pixhawk IMU sensor**, and a **PD-augmented control law** via ssh communication between Ground Station and the U-ROV.
 
-<img width="536" height="305" alt="frame_proj" src="https://github.com/user-attachments/assets/735eaa02-1c44-456e-be8e-baf356a61081" /> 
+<img width="400" height="235" alt="frame_proj" src="https://github.com/user-attachments/assets/735eaa02-1c44-456e-be8e-baf356a61081" /> 
  <img width="400" height="235" alt="U-ROVs2" src="https://github.com/user-attachments/assets/c78c6581-40a1-4368-84cd-c6bfb52926f0" />
 
 
