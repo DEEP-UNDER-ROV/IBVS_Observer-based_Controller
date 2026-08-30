@@ -35,7 +35,7 @@ class VideoStreamer(Node):
         self.detected_corners = None
         self.current_rc = None
         self.current_rc_out = None
-        self.current_vel = None
+        self.current_vel_hat  = None
         self.current_err = None
         self.last_poly = None
 
@@ -192,6 +192,7 @@ class VideoStreamer(Node):
 
         self.draw_error(stream)
         self.draw_rc(stream)
+        self.draw_nu_hat(stream)
 
         stream = self.resize_for_stream(stream)
 
@@ -289,32 +290,34 @@ class VideoStreamer(Node):
         
         rc = self.current_rc
         try:
-            cv2.putText(stream, f"Surge :{rc.channels[4]:+.2f}", (20,150), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"Sway  :{rc.channels[5]:+.2f}", (20,170), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"Heave :{rc.channels[2]:+.2f}", (20,190), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"Roll  :{rc.channels[1]:+.2f}", (20,250), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"Pitch :{rc.channels[0]:+.2f}", (20,230), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"Yaw   :{rc.channels[3]:+.2f}", (20,210), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Surge :{rc.channels[4]:+.2f}", (20,180), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Sway  :{rc.channels[5]:+.2f}", (20,200), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Heave :{rc.channels[2]:+.2f}", (20,220), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Roll  :{rc.channels[1]:+.2f}", (20,240), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Pitch :{rc.channels[0]:+.2f}", (20,260), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Yaw   :{rc.channels[3]:+.2f}", (20,280), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
 
         except IndexError:
             pass
             
     # =========================================================
     def draw_nu_hat(self, stream):
-        if self.current_rc is None:
+        if self.current_vel_hat is None:
             return
         
-        rc = self.current_rc
+        nu = np.asarray(self.current_vel_hat.data,dtype=float)
+ 
+        x0 = 175
+        y0 = 20
+        dy = 20
+        
         try:
-            cv2.putText(stream, f"Surge :{rc.channels[4]:+.2f}", (20,150), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"Sway  :{rc.channels[5]:+.2f}", (20,170), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"Heave :{rc.channels[2]:+.2f}", (20,190), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"Roll  :{rc.channels[1]:+.2f}", (20,250), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"Pitch :{rc.channels[0]:+.2f}", (20,230), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"Yaw   :{rc.channels[3]:+.2f}", (20,210), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-
-        except IndexError:
-            pass
+            cv2.putText(stream, f"v^B_x :{nu[0]:+.2f}", (20,150), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"v^B_y :{nu[1]:+.2f}", (20,170), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"v^B_z :{nu[2]:+.2f}", (20,190), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"w^B_x :{nu[3]:+.2f}", (20,250), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"w^B_y :{nu[4]:+.2f}", (20,230), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"w^B_z :{nu[5]:+.2f}", (20,210), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
             
     # =========================================================
     def resize_for_stream(self, frame):
