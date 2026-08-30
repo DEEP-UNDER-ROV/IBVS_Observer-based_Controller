@@ -121,7 +121,7 @@ class VideoStreamer(Node):
         # ---------------- Subscriptions ----------------
         self.create_subscription(AprilTagDetectionArray, "/detection1", self.cb_detection, 10)
         self.create_subscription(OverrideRCIn, "/mavros/rc/override", self.cb_rc, 10)
-        self.create_subscription(TwistStamped, "/ibvs/vel", self.cb_vel, 10)
+        self.create_subscription(TwistStamped, "/ibvs/nu_B_hat", self.cb_vel_hat, 10)
         self.create_subscription(Float32MultiArray, "/ibvs/error/px", self.cb_err, 10)
 
         self.create_subscription(PolygonStamped,"/apriltag/corners",self.cb_corners,qos)
@@ -135,14 +135,14 @@ class VideoStreamer(Node):
         self.detected_corners = None
         self.current_rc = None
         self.current_rc_out = None
-        self.current_vel = None
+        self.current_vel_hat = None
         self.current_err = None
         self.last_poly = None      
        
 
     # ---------------- Callbacks ----------------
     def cb_rc(self, msg): self.current_rc = msg
-    def cb_vel(self, msg): self.current_vel = msg
+    def cb_vel_hat(self, msg): self.current_vel_hat = msg
     def cb_err(self, msg): self.current_err = msg
     def cb_corners(self, msg): self.last_poly = msg
 
@@ -298,7 +298,24 @@ class VideoStreamer(Node):
 
         except IndexError:
             pass
+            
+    # =========================================================
+    def draw_nu_hat(self, stream):
+        if self.current_rc is None:
+            return
+        
+        rc = self.current_rc
+        try:
+            cv2.putText(stream, f"Surge :{rc.channels[4]:+.2f}", (20,150), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Sway  :{rc.channels[5]:+.2f}", (20,170), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Heave :{rc.channels[2]:+.2f}", (20,190), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Roll  :{rc.channels[1]:+.2f}", (20,250), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Pitch :{rc.channels[0]:+.2f}", (20,230), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Yaw   :{rc.channels[3]:+.2f}", (20,210), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
 
+        except IndexError:
+            pass
+            
     # =========================================================
     def resize_for_stream(self, frame):
         h, w = frame.shape[:2]
