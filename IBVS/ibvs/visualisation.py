@@ -126,6 +126,7 @@ class VideoStreamer(Node):
 
         self.create_subscription(PolygonStamped,"/apriltag/corners",self.cb_corners,qos)
         self.create_subscription(Image, "/corrected/left/image_raw", self.cb_image_overlay, 10)
+        # self.create_subscription(Image,self.overlay_image_topic,self.cb_image_overlay,10)
 
         self.get_logger().info(
             f"OVERLAY mode image topic: "
@@ -260,7 +261,7 @@ class VideoStreamer(Node):
 
         e = np.asarray(self.current_err.data,dtype=float)
 
-        x0 = 175
+        x0 = 60
         y0 = 20
         dy = 20
 
@@ -306,18 +307,14 @@ class VideoStreamer(Node):
             return
         
         nu = np.asarray(self.current_vel_hat.data,dtype=float)
- 
-        x0 = 175
-        y0 = 20
-        dy = 20
         
         try:
-            cv2.putText(stream, f"v^B_x :{nu[0]:+.2f}", (20,150), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"v^B_y :{nu[1]:+.2f}", (20,170), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"v^B_z :{nu[2]:+.2f}", (20,190), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"w^B_x :{nu[3]:+.2f}", (20,250), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"w^B_y :{nu[4]:+.2f}", (20,230), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"w^B_z :{nu[5]:+.2f}", (20,210), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"vBx :{nu[0]:+.2f}", (200,150), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"vBy :{nu[1]:+.2f}", (250,150), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"vBz :{nu[2]:+.2f}", (300,150), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"wBx :{nu[3]:+.2f}", (200,170), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"wBy :{nu[4]:+.2f}", (250,170), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"wBz :{nu[5]:+.2f}", (300,170), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
             
     # =========================================================
     def resize_for_stream(self, frame):
