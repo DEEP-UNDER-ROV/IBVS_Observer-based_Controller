@@ -235,9 +235,9 @@ class IBVSRCController(Node):
         self.publish_torque(self.torque_pub, "body", self.get_clock().now().to_msg(), tau)
 
         pwm = self.controller.compute_force_pwm(tau)
-        # self.current_pwm = pwm
+        self.current_pwm = pwm
         
-        # self.publish_rc()
+        self.publish_rc()
         self.log_debug(tau, self.nu_B_hat, pwm)
 
     # =========================================================
