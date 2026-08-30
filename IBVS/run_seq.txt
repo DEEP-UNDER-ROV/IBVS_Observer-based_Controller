@@ -54,6 +54,13 @@ ros2 bag record --include-hidden-topics \
   /mavros/rc/override \
   /camera/overlay/image_raw/compressed
 
+ros2 bag play your_bag \
+  --topics \
+  /apriltag/corners \
+  /detection1 \
+  /detection2 \
+  /mavros/imu/data
+
 
 8. Watch RPi Temp
 watch -n 1 sensors
