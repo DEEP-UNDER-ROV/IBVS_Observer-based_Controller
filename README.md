@@ -1,4 +1,4 @@
-# Stereo-enhanced Image-based Visual Servoing (IBVS) for Underwater ROV with Observes based using IMU Data
+# Stereo-enhanced Image-based Visual Servoing (IBVS) for Underwater ROV with Observer-based Controller using Fused Stereo Camera and IMU sensor
 
 A ROS2 implementation of **Stereo-enhanced Image-based Visual Servoing (IBVS)** for underwater ROV positioning using **stereo vision**, **AprilTag feature extraction**, and a **PI-augmented control law** via ssh communication between Ground Station and the U-ROV.
 
