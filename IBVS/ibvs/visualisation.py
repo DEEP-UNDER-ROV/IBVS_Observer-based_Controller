@@ -15,28 +15,22 @@ from apriltag_msgs.msg import AprilTagDetectionArray
 from ibvs.parameter import *
 
 
-class IBVS_Telemetry(Node):
+class VideoStreamer(Node):
     def __init__(self):
-        super().__init__("IBVS_Telemetry")
-        self.get_logger().info("Telemetry Node Started")
+        super().__init__("Video_Streamer")
+        self.declare_parameter("mode", "auto")
+        self.declare_parameter("image_topic", "/camera/camera/color/image_raw")
+        self.declare_parameter("overlay_image_topic", "/corrected/left/image_raw")
 
-        # ---------------- Publishers ----------------
-        # overlay image publishers (overlay -> ROS + compressed for QGC)
-        self.overlay_pub = self.create_publisher(Image, "/camera/overlay/image_raw", 10)
-        self.comp_pub    = self.create_publisher(CompressedImage, "/camera/overlay/image_raw/compressed", 10)
+        self.mode = self.get_parameter("mode").value
+        self.image_topic = self.get_parameter("image_topic").value
+        self.overlay_image_topic = self.get_parameter("overlay_image_topic").value
 
-        # ---------------- Subscriptions ----------------
-        self.create_subscription(AprilTagDetectionArray, "/detection1", self.cb_detection, 10)
-        self.create_subscription(OverrideRCIn, "/mavros/rc/override", self.cb_rc, 10)
-        self.create_subscription(RCOut, "/mavros/rc/out", self.cb_rc_out, 10)
-        self.create_subscription(TwistStamped, "/ibvs/vel", self.cb_vel, 10)
-        self.create_subscription(Float32MultiArray, "/ibvs/error/px", self.cb_err, 10)
-        
-        qos = QoSProfile(depth=10)
-        qos.reliability = ReliabilityPolicy.BEST_EFFORT
+        self.get_logger().info(f"Streaming Mode: {self.mode}")
 
-        self.create_subscription(PolygonStamped,"/apriltag/corners",self.cb_corners,qos)
-        self.create_subscription(Image, "/corrected/left/image_raw", self.cb_image, 10)
+        self.bridge = CvBridge()
+
+        self.active_mode = None
 
         self.detected_corners = None
         self.current_rc = None
@@ -45,48 +39,166 @@ class IBVS_Telemetry(Node):
         self.current_err = None
         self.last_poly = None
 
-        self.camera_matrix = np.array([[FX, 0, CX],
-                                       [0, FY, CY],
-                                       [0,  0,  1]], dtype=np.float32)
-        self.dist_coeffs = np.array(DIST_COEFFS, dtype=np.float32)
-        
         self.desired, R = self.compute_desired_corners_pixel(Z_DES=Z_DES, pitch_deg=PITCH_DES_DEG, yaw_deg=YAW_DES_DEG, roll_deg=ROLL_DES_DEG)
 
-        
-        self.bridge = CvBridge()
+        # ---------------- Publishers ----------------
+        # overlay image publishers (overlay -> ROS + compressed for QGC)
+        self.overlay_pub = self.create_publisher(Image, "/camera/overlay/image_raw", 10)
+        self.comp_pub    = self.create_publisher(CompressedImage, "/camera/overlay/image_raw/compressed", 10)
 
-        # publishing rate control (for overlay publish)
+        self.video_writer = None
+
+        if self.mode == "auto":
+            self.get_logger().info("Waiting for ROS topic discovery...")
+            self.auto_timer = self.create_timer(1.0, self.auto_detect_mode)
+
+        else:
+            self.configure_mode(self.mode)
+
         self.img_pub_period = 1.0 / 20.0 # image @ 20 Hz
         self.last_img_pub = 0.0
 
-        self.PATCH = PATCH
-        
+    # =========================================================
+    def auto_detect_mode(self):
+        topics = dict(self.get_topic_names_and_types())
+        detection_exists = "/detection1" in topics
+
+        if detection_exists:
+            self.get_logger().info("Detected /detection1 -> switching to OVERLAY mode")
+            self.configure_mode("overlay")
+
+        else:
+            self.get_logger().info("No /detection1 detected -> switching to CLEAN mode")
+            self.configure_mode("clean")
+
+        self.destroy_timer(self.auto_timer)
+        self.auto_timer = None
+
+    # =========================================================
+    def configure_mode(self, mode):
+        if mode not in ["overlay", "clean"]:
+            self.get_logger().error(f"Invalid mode: {mode}")
+            return
+
+        self.active_mode = mode
+
         gst_pipeline = (
             f"appsrc is-live=true block=true do-timestamp=true format=time ! "
             f"queue ! "
             f"videoconvert ! "
-            f"video/x-raw,width=848,height=480,format=I420 ! "
+            f"video/x-raw,width={stream_w},height={stream_h},format=I420 ! "
             f"x264enc tune=zerolatency "
             f"bitrate=2000 speed-preset=ultrafast "
             f"key-int-max=30 ! "
             f"rtph264pay config-interval=-1 pt=96 ! "
             f"udpsink host={QGC_IP} port={QGC_PORT} sync=false async=false"
         )
-        
+
         self.video_writer = cv2.VideoWriter(
-            gst_pipeline, cv2.CAP_GSTREAMER, 0, 30, (848, 480), True
-        )
+            gst_pipeline, cv2.CAP_GSTREAMER, 0, 30, (stream_w, stream_h),True)
 
         if not self.video_writer.isOpened():
             self.get_logger().error("GStreamer pipeline failed!")
 
-        self.get_logger().info("IBVS Telemetry running (subscribed image mode)")
+        self.get_logger().info(f"Streaming {mode.upper()} video to {QGC_IP}:{QGC_PORT}")
+
+        if mode == "overlay":
+            self.configure_overlay_subscriptions()
+
+        else:
+            self.configure_clean_subscriptions()
+
+    # =========================================================
+    def configure_clean_subscriptions(self):
+        self.get_logger().info(f"CLEAN mode image topic: {self.image_topic}")
+        self.create_subscription(Image, self.image_topic, self.cb_image_clean, 10)
+
+    # =========================================================
+    def configure_overlay_subscriptions(self):
+        qos = QoSProfile(depth=10)
+        qos.reliability = ReliabilityPolicy.BEST_EFFORT
+
+        # ---------------- Subscriptions ----------------
+        self.create_subscription(AprilTagDetectionArray, "/detection1", self.cb_detection, 10)
+        self.create_subscription(OverrideRCIn, "/mavros/rc/override", self.cb_rc, 10)
+        self.create_subscription(TwistStamped, "/ibvs/vel", self.cb_vel, 10)
+        self.create_subscription(Float32MultiArray, "/ibvs/error/px", self.cb_err, 10)
+
+        self.create_subscription(PolygonStamped,"/apriltag/corners",self.cb_corners,qos)
+        self.create_subscription(Image, "/corrected/left/image_raw", self.cb_image_overlay, 10)
+
+        self.get_logger().info(
+            f"OVERLAY mode image topic: "
+            f"{self.overlay_image_topic}"
+        )
+
+        self.detected_corners = None
+        self.current_rc = None
+        self.current_rc_out = None
+        self.current_vel = None
+        self.current_err = None
+        self.last_poly = None      
+       
 
     # ---------------- Callbacks ----------------
     def cb_rc(self, msg): self.current_rc = msg
-    def cb_rc_out(self, msg): self.current_rc_out = msg
     def cb_vel(self, msg): self.current_vel = msg
     def cb_err(self, msg): self.current_err = msg
+    def cb_corners(self, msg): self.last_poly = msg
+
+    # =========================================================
+    def cb_detection(self, msg):
+        if not msg.detections:
+            self.detected_corners = None
+            return
+    
+        det = msg.detections[0]
+        self.detected_corners = np.array([[c.x, c.y] for c in det.corners],dtype=np.float32)
+
+    # =========================================================
+    def cb_image_clean(self, msg):
+        try:
+            if "infra" in self.image_topic.lower():
+                frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="mono8")
+                frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+
+            else:
+                frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+
+        except Exception as e:
+            self.get_logger().warn(f"Failed to convert clean frame: {e}")
+            return
+
+        frame = self.resize_for_stream(frame)
+        self.push_frame(frame, msg.header.stamp, publish_overlay=False)
+
+    # =========================================================
+    def cb_image_overlay(self, msg):
+        try:
+            frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+
+        except Exception as e:
+            self.get_logger().warn(f"Failed to convert overlay frame: {e}")
+            return
+
+        stream = frame.copy()
+
+        desired_draw = (self.desired .astype(np.int32) .reshape(-1, 1, 2))
+        cv2.polylines(stream, [desired_draw], True, (0, 0, 255),2)
+
+        if self.detected_corners is not None:
+            pts = (self.detected_corners.reshape((-1, 1, 2)).astype(np.int32))
+            cv2.polylines(stream, [pts], True, (0, 255, 0), 2)
+
+        self.draw_error(stream)
+        self.draw_rc(stream)
+
+        stream = self.resize_for_stream(stream)
+
+        self.push_frame(stream,
+            msg.header.stamp,
+            publish_overlay=True,
+            frame_id=msg.header.frame_id)
 
     # =========================================================
     def compute_desired_corners_pixel(self, Z_DES, pitch_deg=0.0, yaw_deg=0.0, roll_deg=0.0):
@@ -140,58 +252,43 @@ class IBVS_Telemetry(Node):
 
         return desired_pixels, R
 
-    def cb_detection(self, msg):
-        if not msg.detections:
-            self.detected_corners = None
+    # =========================================================
+    def draw_error(self, stream):
+        if self.current_err is None:
             return
-    
-        det = msg.detections[0]
-        self.detected_corners = np.array([[c.x, c.y] for c in det.corners],dtype=np.float32)
-    
-    def cb_corners(self, msg):
-        self.last_poly = msg
 
-    def cb_image(self, msg):
+        e = np.asarray(self.current_err.data,dtype=float)
+
+        x0 = 175
+        y0 = 20
+        dy = 20
+
+        num_elements = len(e)
+        if num_elements == 12:
+            for i in range(4):
+                eu, ev, eZ = e[i * 3:(i + 1) * 3]
+                cv2.putText(stream, f"P{i+1}: eu={eu:+.2f}px ev={ev:+.2f}px eZ={eZ:+.2f}m",
+                    (x0, y0 + i * dy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+
+        elif num_elements == 8:
+            e = e.reshape(4, 2)
+            for i in range(4):
+                eu, ev = e[i]
+                cv2.putText(stream, f"P{i+1}: eu={eu:+.2f} ev={ev:+.2f}",
+                    (x0, y0 + i * dy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+
+        else:
+            cv2.putText(
+                stream,f"ERR: {num_elements} values", (x0, y0),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+
+    # =========================================================
+    def draw_rc(self, stream):
+        if self.current_rc is None:
+            return
+        
+        rc = self.current_rc
         try:
-            color = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-        except Exception:
-            return
-
-        stamp = msg.header.stamp
-        stream = color.copy()
-
-        desired_pixels = self.desired
-
-        desired_draw = desired_pixels.astype(np.int32).reshape(-1,1,2)
-        cv2.polylines(stream, [desired_draw], True, (0, 0, 255), 2)
-
-        if self.detected_corners is not None:
-            pts = self.detected_corners.reshape((-1,1,2)).astype(np.int32)
-            cv2.polylines(stream,[pts],True,(0,255,0),2)
-
-        # --- Error Overlay ---
-        if self.current_err is not None:
-            e = np.asarray(self.current_err.data)
-            x0, y0, dy = 175, 20, 20
-            num_elements = len(e)
-            if num_elements == 12:
-                for i in range(4):
-                    ex, ey, ez = e[i*3:(i+1)*3]
-                    cv2.putText(stream, f"P{i+1}: ex={ex:+.2f}px  ey={ey:+.2f}px  ez={ez:+.2f}m",
-                                (x0, y0 + i * dy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
-            elif num_elements == 8:
-                e = e.reshape(4, 2)
-                for i in range(4):
-                    ex, ey = e[i]
-                    cv2.putText(stream, f"P{i+1}: ex={ex:+.2f}  ey={ey:+.2f}",
-                        (x0, y0 + i * dy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
-            else:
-                cv2.putText(stream, f"ERR: {num_elements} values",
-                    (x0, y0), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
-
-        # RC inputs
-        if self.current_rc is not None:
-            rc = self.current_rc
             cv2.putText(stream, f"Surge :{rc.channels[4]:+.2f}", (20,150), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
             cv2.putText(stream, f"Sway  :{rc.channels[5]:+.2f}", (20,170), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
             cv2.putText(stream, f"Heave :{rc.channels[2]:+.2f}", (20,190), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
@@ -199,40 +296,80 @@ class IBVS_Telemetry(Node):
             cv2.putText(stream, f"Pitch :{rc.channels[0]:+.2f}", (20,230), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
             cv2.putText(stream, f"Yaw   :{rc.channels[3]:+.2f}", (20,210), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
 
-        # Push to QGC
-        self.video_writer.write(stream)
+        except IndexError:
+            pass
 
-        # rate-limited publish of overlay
-        now = self.get_clock().now().nanoseconds * 1e-9
-        if now - self.last_img_pub >= self.img_pub_period:
-            self.last_img_pub = now
+    # =========================================================
+    def resize_for_stream(self, frame):
+        h, w = frame.shape[:2]
+        if (h, w) != (stream_h, stream_w):
 
-            overlay = self.bridge.cv2_to_imgmsg(stream, encoding="bgr8")
-            overlay.header.stamp = stamp
-            overlay.header.frame_id = msg.header.frame_id if msg.header.frame_id else "camera_link"
-            self.overlay_pub.publish(overlay)
+            frame = cv2.resize(frame,
+                (stream_w, stream_h),
+                interpolation=cv2.INTER_LINEAR)
 
+        return frame
+
+    # =========================================================
+    def push_frame(self, frame, stamp, 
+        publish_overlay=False,
+        frame_id="camera_link"):
+
+        if self.video_writer is not None:
+            if self.video_writer.isOpened():
+                self.video_writer.write(frame)
+
+        # Only publish ROS overlay topics in overlay mode
+        if not publish_overlay:
+            return
+
+        now = (self.get_clock().now().nanoseconds* 1e-9)
+        if now - self.last_img_pub < self.img_pub_period:
+            return
+
+        self.last_img_pub = now
+
+        overlay = self.bridge.cv2_to_imgmsg(frame, encoding="bgr8")
+        overlay.header.stamp = stamp
+        overlay.header.frame_id = (frame_id
+            if frame_id
+            else "camera_link")
+
+        self.overlay_pub.publish(overlay)
+
+        encoded = cv2.imencode(".jpg",frame,[cv2.IMWRITE_JPEG_QUALITY,80])
+
+        if encoded[0]:
             comp = CompressedImage()
             comp.header = overlay.header
             comp.format = "jpeg"
-            comp.data = cv2.imencode(".jpg", stream, [cv2.IMWRITE_JPEG_QUALITY, 80])[1].tobytes()
+            comp.data = encoded[1].tobytes()
             self.comp_pub.publish(comp)
 
+    # =========================================================
     def destroy_node(self):
-        self.video_writer.release()
+        if self.video_writer is not None:
+            if self.video_writer.isOpened():
+                self.video_writer.release()
+                self.get_logger().info("GStreamer pipeline released.")
+
         super().destroy_node()
 
 
 def main():
     rclpy.init()
-    node = IBVS_Telemetry()
+    node = VideoStreamer()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
+
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        try:
+            rclpy.shutdown()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
