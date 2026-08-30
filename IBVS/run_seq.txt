@@ -1,9 +1,4 @@
 1. Cmd RealSense Driver
-ros2 launch rov_vision uw_rs_apriltag_triangulation.launch.xml \
-  left_input:=/camera/camera/infra1/image_rect_raw \
-  right_input:=/camera/camera/infra2/image_rect_raw \
-  image_transport:=raw
-  
 ros2 launch rov_vision uw_rs_apriltag_triangulation.launch.xml
 ros2 param set /camera/camera depth_module.emitter_enabled 0
 
@@ -50,11 +45,12 @@ ros2 bag record --include-hidden-topics \
   /apriltag/corners \
   /detection1 \
   /detection2 \
-  /ibvs/error \
-  /ibvs/vel_body \
-  /ibvs/pwm_debug \
+  /ibvs/error/px \
+  /ibvs/error/no \
+  /ibvs/ukf/data \
+  /ibvs/nu_B_hat \
+  /ibvs/torque \
   /mavros/imu/data \
-  /mavros/imu/data_raw \
   /mavros/rc/override \
   /camera/overlay/image_raw/compressed
 
