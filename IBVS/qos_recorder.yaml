@@ -1,0 +1,53 @@
+/mavros/imu/data:
+  reliability: best_effort
+  durability: volatile
+  history: keep_last
+  depth: 1000
+
+/apriltag/corners:
+  reliability: best_effort
+  durability: volatile
+  history: keep_last
+  depth: 1000
+
+/detection1:
+  reliability: reliable
+  durability: volatile
+  history: keep_last
+  depth: 50
+
+/detection2:
+  reliability: reliable
+  durability: volatile
+  history: keep_last
+  depth: 50
+
+/ibvs/ukf/data:
+  reliability: reliable
+  durability: volatile
+  history: keep_last
+  depth: 1000
+
+/ibvs/nu_B_hat:
+  reliability: reliable
+  durability: volatile
+  history: keep_last
+  depth: 1000
+
+/ibvs/torque:
+  reliability: reliable
+  durability: volatile
+  history: keep_last
+  depth: 1000
+
+/ibvs/error/px:
+  reliability: reliable
+  durability: volatile
+  history: keep_last
+  depth: 1000
+
+/ibvs/error/no:
+  reliability: reliable
+  durability: volatile
+  history: keep_last
+  depth: 1000
