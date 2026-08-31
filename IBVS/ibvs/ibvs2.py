@@ -106,7 +106,7 @@ class IBVSRCController(Node):
     def declare_state(self):
         # ---------------------- System Flags ----------------------
         self.use_3d_matrix_feature = True
-        self.use_delta_matrix = True
+        self.use_delta_matrix = False
         self.dls_matrix = True
         self.stereo_cam = False
         self.use_camera_ukf = True

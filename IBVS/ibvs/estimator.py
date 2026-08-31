@@ -80,7 +80,7 @@ class UKF_Estimator:
             np.arange(self.idx_wB.start, self.idx_wB.stop)
         ])
 
-        self.alpha = 0.5
+        self.alpha = 0.3
         self.beta = 2.0
         self.kappa = 0.0
 
@@ -234,21 +234,129 @@ class UKF_Estimator:
         self.shared.ukf_initialized = True
         self._log_info("UKF initialized from stereo camera measurement.")
 
+    def _sanitize_covariance(self, P, min_eig=1e-8):
+        P = np.asarray(P, dtype=np.float64)
+
+        if P.shape != (self.ukf_state, self.ukf_state):
+            raise ValueError(
+                f"Invalid covariance shape: {P.shape}, "
+                f"expected {(self.ukf_state, self.ukf_state)}"
+            )
+
+        if not np.all(np.isfinite(P)):
+            self._log_info("[UKF] ERROR: covariance contains NaN/Inf")
+            return None
+
+        # Symmetrize
+        P = 0.5 * (P + P.T)
+
+        # Eigen decomposition
+        eigvals, eigvecs = np.linalg.eigh(P)
+
+        min_before = np.min(eigvals)
+        max_before = np.max(eigvals)
+
+        # Reject catastrophic covariance
+        if not np.isfinite(max_before):
+            self._log_info("[UKF] ERROR: invalid covariance eigenvalues")
+            return None
+
+        # Clamp eigenvalues
+        eigvals = np.maximum(eigvals, min_eig)
+
+        P = (eigvecs * eigvals) @ eigvecs.T
+
+        # Symmetrize again
+        P = 0.5 * (P + P.T)
+
+        # Add explicit diagonal jitter
+        P += 1e-10 * np.eye(self.ukf_state)
+
+        if min_before < min_eig:
+            self._log_info(
+                f"[UKF] covariance repaired: "
+                f"min_eig={min_before:.3e} -> {min_eig:.3e}, "
+                f"max_eig={max_before:.3e}"
+            )
+
+        return P
+
+
+    def generate_sigma_points(self, x, P):
+
+        x = np.asarray(x, dtype=np.float64).reshape(self.ukf_state)
+        P = np.asarray(P, dtype=np.float64)
+
+        if not np.all(np.isfinite(x)):
+            raise RuntimeError("[UKF] State contains NaN/Inf")
+
+        P = self._sanitize_covariance(P, min_eig=1e-8)
+
+        if P is None:
+            raise RuntimeError("[UKF] Could not sanitize covariance")
+
+        scale = self.ukf_state + self.lambda_
+
+        # scale must be positive
+        if scale <= 0:
+            raise RuntimeError(
+                f"[UKF] Invalid sigma-point scale: {scale}"
+            )
+
+        # Try Cholesky with progressively larger jitter.
+        jitter_values = [
+            1e-10,
+            1e-9,
+            1e-8,
+            1e-7,
+            1e-6,
+            1e-5,
+        ]
+
+        for jitter in jitter_values:
+            try:
+                P_chol = P + jitter * np.eye(self.ukf_state)
+
+                S = np.linalg.cholesky(scale * P_chol)
+
+                sigma = np.zeros(
+                    (self.n_sigma, self.ukf_state),
+                    dtype=np.float64
+                )
+
+                sigma[0] = x
+
+                for i in range(self.ukf_state):
+                    sigma[i + 1] = x + S[:, i]
+                    sigma[i + 1 + self.ukf_state] = x - S[:, i]
+
+                return sigma
+
+            except np.linalg.LinAlgError:
+                continue
+
+        raise RuntimeError(
+            "[UKF] Cholesky failed even after covariance regularization"
+        )
+
+
+
     # =========================================================
     def generate_sigma_points(self, x, P):
         x = np.asarray(x, dtype=np.float64).reshape(self.ukf_state)
         P = np.asarray(P, dtype=np.float64)
+
         P = 0.5 * (P + P.T)
         jitter = 1e-9 * np.eye(self.ukf_state)
 
         try:
-            S = np.linalg.cholesky(self.gamma * (P + jitter))
+            S = np.linalg.cholesky((self.ukf_state + self.lambda_) * (P + jitter))
 
         except np.linalg.LinAlgError:
             eigvals, eigvecs = np.linalg.eigh(P)
             eigvals = np.maximum(eigvals, 1e-12)
             P_fixed = (eigvecs @ np.diag(eigvals) @ eigvecs.T)
-            S = np.linalg.cholesky(self.gamma * P_fixed)
+            S = np.linalg.cholesky((self.ukf_state + self.lambda_) * P_fixed)
 
         sigma = np.zeros((self.n_sigma, self.ukf_state), dtype=np.float64)
         sigma[0] = x
@@ -313,9 +421,6 @@ class UKF_Estimator:
         # last_delta = np.asarray(last_delta, dtype=np.float64).reshape(self.N)
 
         s_C, v_B, w_B, b_o, b_g, a_B, b_a = self.unpack_state(state)
-
-        if self.shared.tag_lost:
-            sC_next = s_C.copy()
 
         nu_B = np.concatenate([v_B, w_B])
         nu_C = self.T_bc_0 @ nu_B
@@ -426,7 +531,10 @@ class UKF_Estimator:
         innovation = z_imu - z_mean
         S_standard = self.measurement_covariance(z_sigma, z_mean, self.R_imu)
 
-        mahalanobis_dist = innovation.T @ np.linalg.inv(S_standard) @ innovation
+        # mahalanobis_dist = innovation.T @ np.linalg.inv(S_standard) @ innovation
+        mahalanobis_dist = (innovation.T @ np.linalg.solve(S_standard, innovation))
+        mahalanobis_dist = float(mahalanobis_dist)
+
 
         gamma = 12.59
 
