@@ -40,6 +40,7 @@ ros2 bag record --max-cache-size 100000000 --include-hidden-topics \
   /ibvs/torque \
   /mavros/imu/data \
   /mavros/rc/override \
+  /corrected/left/image_raw \
   /camera/overlay/image_raw/compressed
 
 
