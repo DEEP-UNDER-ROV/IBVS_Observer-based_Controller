@@ -28,6 +28,7 @@ setup(
             'visualize = ibvs.visualisation:main',
             'ibvs = ibvs.ibvs:main',
             'ibvs2 = ibvs.ibvs2:main',
+            'ibvs3 = ibvs.ibvs3:main',
             'heave_trim = ibvs.heave_trim:main',
         ],
     },
