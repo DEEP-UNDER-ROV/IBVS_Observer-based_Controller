@@ -30,7 +30,6 @@ class IBVSRCController(Node):
         # ---------------- Subscribers ----------------
         self.sub_corners = self.create_subscription(PolygonStamped, "/apriltag/corners", self.cb_corners, qos_profile_sensor_data)
         self.sub_detection = self.create_subscription(AprilTagDetectionArray, "/detection1", self.cb_detection_left, 10)
-        self.sub_detection = self.create_subscription(AprilTagDetectionArray, "/detection2", self.cb_detection_right, 10)
         # self.camera_gyro_sub = self.create_subscription(Imu, '/camera/camera/gyro/sample', self.cb_camera_gyro, 100)
         # self.camera_accel_sub = self.create_subscription(Imu, '/camera/camera/accel/sample', self.cb_camera_accel, 100)
         self.fcu_imu_sub = self.create_subscription(Imu, '/mavros/imu/data', self.cb_fcu_imu, imu_qos)
@@ -55,7 +54,6 @@ class IBVSRCController(Node):
 
         # ---------- Desired Tag Configuration ----------
         self.desired_pts_left, R = self.desired_corners(Z_DES=Z_DES, pitch_deg=PITCH_DES_DEG, yaw_deg=YAW_DES_DEG, roll_deg=ROLL_DES_DEG)
-        self.desired_pts_right, R = self.desired_corners(Z_DES=Z_DES, pitch_deg=PITCH_DES_DEG, yaw_deg=YAW_DES_DEG, roll_deg=ROLL_DES_DEG)
         self.desired_normal = R @ np.array([0.0, 0.0, 1.0])
 
         p0, p1 = self.desired_pts_left[3], self.desired_pts_left[2]
@@ -114,7 +112,6 @@ class IBVSRCController(Node):
         # --------------- Perception & Tracking State ---------------
         self.depth_img = None
         self.detected_uv_left = None
-        self.detected_uv_right = None
         
         # Timestamps
         self.last_tag_time = None
@@ -185,7 +182,7 @@ class IBVSRCController(Node):
             self.nu_CR_hat = self.geometry.T_bc_1 @ self.nu_B_hat
             self.s_hat  = self.estimator.ukf_x[self.estimator.idx_s].copy()
             self.sL_hat = self.estimator.ukf_x[self.estimator.idx_s_left].copy()
-            self.sR_hat = self.estimator.ukf_x[self.estimator.idx_s_right].copy()
+            self.sR_hat = self.estimator.ukf_x[self.estimator.idx_s_left].copy()
 
     # =========================================================
     def cb_control(self):
@@ -436,15 +433,6 @@ class IBVSRCController(Node):
         det = msg.detections[0]
         self.detected_uv_left = np.array([[c.x, c.y] for c in det.corners],dtype=np.float64)
 
-    def cb_detection_right(self, msg):
-        if len(msg.detections) == 0:
-            self.detected_uv_right = None
-            return
-
-        det = msg.detections[0]
-        self.detected_uv_right = np.array([[c.x, c.y] for c in det.corners],dtype=np.float64)
-
-
     # =========================================================   
     def pixel_to_norm(self, u, v):
         x = (u - CX)/FX
@@ -469,7 +457,7 @@ class IBVSRCController(Node):
         pts = np.array([[p.x, p.y, p.z] for p in msg.polygon.points])
         for i in range(4):
             u_l, v_l = self.detected_uv_left[i]
-            u_r, v_r = self.detected_uv_right[i]
+            u_r, v_r = self.detected_uv_left[i]
             Z = pts[i, 2]
             if not np.isfinite(Z) or Z <= 0 or Z < 1e-4:
                 return None
@@ -482,7 +470,7 @@ class IBVSRCController(Node):
             deltas.append(delta)
 
             ud_l, vd_l = self.desired_pts_left[i]
-            ud_r, vd_r = self.desired_pts_right[i]
+            ud_r, vd_r = self.desired_pts_left[i]
 
             xd_l, yd_l = self.pixel_to_norm(ud_l, vd_l)
             xd_r, yd_r = self.pixel_to_norm(ud_r, vd_r)
