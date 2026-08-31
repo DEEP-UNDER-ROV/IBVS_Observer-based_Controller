@@ -12,14 +12,6 @@ ros2 launch mavros apm.launch fcu_url:="serial:///dev/ttyACM0:921600" gcs_url:="
 ros2 launch mavros apm.launch fcu_url:="serial:///dev/ttyACM0:921600" gcs_url:="udp://@192.168.2.1:14550"
 
 
-3. Cmd IBVS Parameter
-ros2 run ibvs heave_trim
-ros2 param set /heave_trim_node bias -133
-
-ros2 param set /ibvs_rc_controller Kp [0.9,0.9,0.7,0.0,0.3,0.5]
-ros2 param get /ibvs_rc_controller Kp [/Ki /Kd]
-
-
 4. Cmd IBVS Controller
 ros2 run ibvs visualize
 ros2 run ibvs ibvs
@@ -35,13 +27,9 @@ ros2 run ibvs stream --ros-args -p image_topic:="/corrected/left/image_raw"
 6. Cmd Reset FCU
 ros2 service call /mavros/cmd/command mavros_msgs/srv/CommandLong "{command: 246, param1: 1.0, param2: 0.0, param3: 0.0, param4: 0.0, param5: 0.0, param6: 0.0, param7: 0.0}"
 
-ros2 service call /mavros/param/set mavros_msgs/srv/ParamSetV2 "{param_id: 'SYS_GCSID',value: {type: 2,integer_value: 255}}"
-ros2 run mavros mavparam set SYS_GCSID 255
-ros2 run mavros mavros_node --ros-args -p system_id:=255 -p target_system_id:=1
-
 
 7. Cmd ROSBag Recording
-ros2 bag record --include-hidden-topics \
+ros2 bag record --max-cache-size 100000000 --include-hidden-topics \
   /apriltag/corners \
   /detection1 \
   /detection2 \
@@ -53,6 +41,15 @@ ros2 bag record --include-hidden-topics \
   /mavros/imu/data \
   /mavros/rc/override \
   /camera/overlay/image_raw/compressed
+
+
+ros2 bag record -s mcap -o bag_telemetry \
+  ~/rov_ws/src/IBVS qos_overrides.yaml \
+  /mavros/imu/data /mavros/rc/override /ibvs/ukf/data /ibvs/nu_B_hat /ibvs/torque /ibvs/error/px /ibvs/error/no /apriltag/corners /detection1 /detection2
+
+ros2 bag record -s mcap -o bag_camera \
+  /camera/overlay/image_raw/compressed /corrected/left/image_raw /corrected/right/image_raw
+
 
 ros2 bag play your_bag \
   --topics \
