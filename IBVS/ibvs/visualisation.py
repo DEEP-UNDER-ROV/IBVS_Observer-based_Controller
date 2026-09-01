@@ -343,7 +343,7 @@ class VideoStreamer(Node):
         e = np.asarray(self.current_err.data,dtype=float)
 
         x0 = 60
-        y0 = 20
+        y0 = 60
         dy = 20
 
         num_elements = len(e)
@@ -372,12 +372,12 @@ class VideoStreamer(Node):
         
         rc = self.current_rc
         try:
-            cv2.putText(stream, f"Surge :{rc.channels[4]:+.2f}", (20,180), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"Sway  :{rc.channels[5]:+.2f}", (20,200), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"Heave :{rc.channels[2]:+.2f}", (20,220), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"Roll  :{rc.channels[1]:+.2f}", (20,240), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"Pitch :{rc.channels[0]:+.2f}", (20,260), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"Yaw   :{rc.channels[3]:+.2f}", (20,280), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Surge :{rc.channels[4]:+.2f}", (50,180), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Sway  :{rc.channels[5]:+.2f}", (50,200), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Heave :{rc.channels[2]:+.2f}", (50,220), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Roll  :{rc.channels[1]:+.2f}", (50,240), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Pitch :{rc.channels[0]:+.2f}", (50,260), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            cv2.putText(stream, f"Yaw   :{rc.channels[3]:+.2f}", (50,280), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
 
         except IndexError:
             pass
@@ -396,12 +396,12 @@ class VideoStreamer(Node):
             self.current_vel_hat.twist.angular.z,
         ], dtype=float)
         
-        cv2.putText(stream, f"vBx :{nu[0]:+.3f}", (480,20), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-        cv2.putText(stream, f"vBy :{nu[1]:+.3f}", (590,20), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-        cv2.putText(stream, f"vBz :{nu[2]:+.3f}", (700,20), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-        cv2.putText(stream, f"wBx :{nu[3]:+.3f}", (480,40), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-        cv2.putText(stream, f"wBy :{nu[4]:+.3f}", (590,40), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-        cv2.putText(stream, f"wBz :{nu[5]:+.3f}", (700,40), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+        cv2.putText(stream, f"vBx :{nu[0]:+.3f}", (480,60), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+        cv2.putText(stream, f"vBy :{nu[1]:+.3f}", (590,60), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+        cv2.putText(stream, f"vBz :{nu[2]:+.3f}", (700,60), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+        cv2.putText(stream, f"wBx :{nu[3]:+.3f}", (480,80), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+        cv2.putText(stream, f"wBy :{nu[4]:+.3f}", (590,80), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+        cv2.putText(stream, f"wBz :{nu[5]:+.3f}", (700,80), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
             
     # =========================================================
     def resize_for_stream(self, frame):
