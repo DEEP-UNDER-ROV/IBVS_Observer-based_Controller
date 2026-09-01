@@ -306,15 +306,21 @@ class VideoStreamer(Node):
         if self.current_vel_hat is None:
             return
         
-        nu = np.asarray(self.current_vel_hat.data,dtype=float)
+        nu = np.array([
+            self.current_vel_hat.twist.linear.x,
+            self.current_vel_hat.twist.linear.y,
+            self.current_vel_hat.twist.linear.z,
+            self.current_vel_hat.twist.angular.x,
+            self.current_vel_hat.twist.angular.y,
+            self.current_vel_hat.twist.angular.z,
+        ], dtype=float)
         
-        try:
-            cv2.putText(stream, f"vBx :{nu[0]:+.2f}", (200,150), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"vBy :{nu[1]:+.2f}", (250,150), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"vBz :{nu[2]:+.2f}", (300,150), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"wBx :{nu[3]:+.2f}", (200,170), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"wBy :{nu[4]:+.2f}", (250,170), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-            cv2.putText(stream, f"wBz :{nu[5]:+.2f}", (300,170), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+        cv2.putText(stream, f"vBx :{nu[0]:+.3f}", (480,20), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+        cv2.putText(stream, f"vBy :{nu[1]:+.3f}", (590,20), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+        cv2.putText(stream, f"vBz :{nu[2]:+.3f}", (700,20), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+        cv2.putText(stream, f"wBx :{nu[3]:+.3f}", (480,40), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+        cv2.putText(stream, f"wBy :{nu[4]:+.3f}", (590,40), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+        cv2.putText(stream, f"wBz :{nu[5]:+.3f}", (700,40), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
             
     # =========================================================
     def resize_for_stream(self, frame):
