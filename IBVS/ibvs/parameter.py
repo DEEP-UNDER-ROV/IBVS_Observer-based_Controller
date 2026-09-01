@@ -97,7 +97,7 @@ MAX_MOMEN = 10
 
 
 # --- QGC Port Configuration ---
-QGC_IP = "192.168.2.1"
+QGC_IP = "0.0.0.0"
 QGC_PORT = 5600
 
 stream_w = 848
