@@ -12,7 +12,7 @@ from sensor_msgs.msg import Image, CompressedImage, CameraInfo
 from mavros_msgs.msg import OverrideRCIn, RCOut
 from apriltag_msgs.msg import AprilTagDetectionArray
 
-from ibvs.parameter import *
+from .parameter import *
 
 
 class VideoStreamer(Node):
@@ -20,7 +20,15 @@ class VideoStreamer(Node):
         super().__init__("Video_Streamer")
         self.declare_parameter("mode", "auto")
         self.declare_parameter("image_topic", "/camera/camera/color/image_raw")
-        self.declare_parameter("overlay_image_topic", "/corrected/left/image_raw/compressed")
+        self.declare_parameter("compressed", False)
+        self.compressed = self.get_parameter("compressed").value
+
+        self.get_logger().info(f"Image input: {'COMPRESSED' if self.compressed else 'RAW'}")
+
+        if self.compressed:
+            self.create_subscription(CompressedImage, self.overlay_image_topic, self.cb_image_overlay_compressed, 10)
+        else:
+            self.create_subscription(Image, self.overlay_image_topic, self.cb_image_overlay, 10)
 
         self.mode = self.get_parameter("mode").value
         self.image_topic = self.get_parameter("image_topic").value
@@ -125,8 +133,8 @@ class VideoStreamer(Node):
         self.create_subscription(Float32MultiArray, "/ibvs/error/px", self.cb_err, 10)
 
         self.create_subscription(PolygonStamped,"/apriltag/corners",self.cb_corners,qos)
-        self.create_subscription(Image, "/corrected/left/image_raw/compressed", self.cb_image_overlay, 10)
-        # self.create_subscription(Image,self.overlay_image_topic,self.cb_image_overlay,10)
+        # self.create_subscription(Image, "/corrected/left/image_raw", self.cb_image_overlay, 10)
+        self.create_subscription(Image, self.overlay_image_topic, self.cb_image_overlay, 10)
 
         self.get_logger().info(
             f"OVERLAY mode image topic: "
@@ -185,7 +193,7 @@ class VideoStreamer(Node):
         stream = frame.copy()
 
         desired_draw = (self.desired .astype(np.int32) .reshape(-1, 1, 2))
-        cv2.polylines(stream, [desired_draw], True, (0, 0, 255),2)
+        cv2.polylines(stream, [desired_draw], True, (0, 0, 255), 2)
 
         if self.detected_corners is not None:
             pts = (self.detected_corners.reshape((-1, 1, 2)).astype(np.int32))
@@ -202,6 +210,41 @@ class VideoStreamer(Node):
             publish_overlay=True,
             frame_id=msg.header.frame_id)
 
+    # =========================================================
+    def cb_image_overlay_compressed(self, msg):
+        try:
+            np_arr = np.frombuffer(msg.data, np.uint8)
+            frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+            if frame is None:
+                self.get_logger().warn("Failed to decode compressed image")
+                return
+
+        except Exception as e:
+            self.get_logger().warn(f"Failed to decode compressed frame: {e}")
+            return
+
+        stream = frame.copy()
+        desired_draw = (self.desired.astype(np.int32).reshape(-1, 1, 2))
+        cv2.polylines(stream, [desired_draw], True, (0, 0, 255), 2)
+
+        if self.detected_corners is not None:
+            pts = (self.detected_corners.reshape((-1, 1, 2)).astype(np.int32))
+            cv2.polylines(stream, [pts], True, (0, 255, 0), 2)
+
+        self.draw_error(stream)
+        self.draw_rc(stream)
+        self.draw_nu_hat(stream)
+
+        stream = self.resize_for_stream(stream)
+
+        self.push_frame(
+            stream,
+            msg.header.stamp,
+            publish_overlay=True,
+            frame_id=msg.header.frame_id
+        )
+        
     # =========================================================
     def compute_desired_corners_pixel(self, Z_DES, pitch_deg=0.0, yaw_deg=0.0, roll_deg=0.0):
         half = TAG_SIZE / 2.0
