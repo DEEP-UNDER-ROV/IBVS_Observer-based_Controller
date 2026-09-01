@@ -20,21 +20,11 @@ class VideoStreamer(Node):
         super().__init__("Video_Streamer")
         self.declare_parameter("mode", "auto")
         self.declare_parameter("image_topic", "/camera/camera/color/image_raw")
-        self.declare_parameter("compressed", False)
-        self.compressed = self.get_parameter("compressed").value
-
-        self.get_logger().info(f"Image input: {'COMPRESSED' if self.compressed else 'RAW'}")
-
-        if self.compressed:
-            self.create_subscription(CompressedImage, self.overlay_image_topic, self.cb_image_overlay_compressed, 10)
-        else:
-            self.create_subscription(Image, self.overlay_image_topic, self.cb_image_overlay, 10)
 
         self.mode = self.get_parameter("mode").value
         self.image_topic = self.get_parameter("image_topic").value
-        self.overlay_image_topic = self.get_parameter("overlay_image_topic").value
 
-        self.get_logger().info(f"Streaming Mode: {self.mode}")
+        self.get_logger().info(f"Configured mode: {self.mode}")
 
         self.bridge = CvBridge()
 
@@ -59,7 +49,6 @@ class VideoStreamer(Node):
         if self.mode == "auto":
             self.get_logger().info("Waiting for ROS topic discovery...")
             self.auto_timer = self.create_timer(1.0, self.auto_detect_mode)
-
         else:
             self.configure_mode(self.mode)
 
@@ -133,12 +122,61 @@ class VideoStreamer(Node):
         self.create_subscription(Float32MultiArray, "/ibvs/error/px", self.cb_err, 10)
 
         self.create_subscription(PolygonStamped,"/apriltag/corners",self.cb_corners,qos)
-        # self.create_subscription(Image, "/corrected/left/image_raw", self.cb_image_overlay, 10)
-        self.create_subscription(Image, self.overlay_image_topic, self.cb_image_overlay, 10)
+
+        topics = dict(self.get_topic_names_and_types())
+
+        compressed_topic = "/corrected/left/image_raw/compressed"
+        raw_topic = "/corrected/left/image_raw"
+
+        if compressed_topic in topics:
+            self.overlay_image_topic = compressed_topic
+            self.compressed = True
+
+            self.get_logger().info(
+                f"Found compressed corrected image: "
+                f"{compressed_topic}"
+            )
+
+            self.create_subscription(
+                CompressedImage,
+                compressed_topic,
+                self.cb_image_overlay_compressed,
+                10
+            )
+
+        elif raw_topic in topics:
+            self.overlay_image_topic = raw_topic
+            self.compressed = False
+
+            self.get_logger().info(
+                f"Found raw corrected image: "
+                f"{raw_topic}"
+            )
+
+            self.create_subscription(
+                Image,
+                raw_topic,
+                self.cb_image_overlay,
+                10
+            )
+
+        else:
+            self.get_logger().error(
+                "OVERLAY mode selected, but no corrected "
+                "image topic was found."
+            )
+
+            self.get_logger().error(
+                f"Expected either:\n"
+                f"  {compressed_topic}\n"
+                f"  {raw_topic}"
+            )
+
+            return
 
         self.get_logger().info(
-            f"OVERLAY mode image topic: "
-            f"{self.overlay_image_topic}"
+            f"OVERLAY image input: "
+            f"{'COMPRESSED' if self.compressed else 'RAW'}"
         )
 
         self.detected_corners = None
