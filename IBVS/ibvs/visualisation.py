@@ -20,7 +20,7 @@ class VideoStreamer(Node):
         super().__init__("Video_Streamer")
         self.declare_parameter("mode", "auto")
         self.declare_parameter("image_topic", "/camera/camera/color/image_raw")
-        self.declare_parameter("overlay_image_topic", "/corrected/left/image_raw")
+        self.declare_parameter("overlay_image_topic", "/corrected/left/image_raw/compressed")
 
         self.mode = self.get_parameter("mode").value
         self.image_topic = self.get_parameter("image_topic").value
@@ -125,7 +125,7 @@ class VideoStreamer(Node):
         self.create_subscription(Float32MultiArray, "/ibvs/error/px", self.cb_err, 10)
 
         self.create_subscription(PolygonStamped,"/apriltag/corners",self.cb_corners,qos)
-        self.create_subscription(Image, "/corrected/left/image_raw", self.cb_image_overlay, 10)
+        self.create_subscription(Image, "/corrected/left/image_raw/compressed", self.cb_image_overlay, 10)
         # self.create_subscription(Image,self.overlay_image_topic,self.cb_image_overlay,10)
 
         self.get_logger().info(
