@@ -16,6 +16,9 @@ ros2 launch mavros apm.launch fcu_url:="serial:///dev/ttyACM0:921600" gcs_url:="
 ros2 run ibvs visualize
 ros2 run ibvs ibvs
 
+ros2 run ibvs visualize --ros-args -p compressed:=false
+
+
 
 5. Cmd Stream GStreamer
 ros2 run ibvs stream
