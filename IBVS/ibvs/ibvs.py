@@ -458,22 +458,22 @@ class IBVSRCController(Node):
             e_pixel_img.extend([u_l - ud_l, v_l - vd_l])
 
             if self.use_3d_matrix_feature and self.use_delta_matrix:
-                measurement_left.extend([x_l, y_l, delta])
+                measurement_left.extend([u_l, v_l, delta])
                 e_pixel_left.extend([u_l - ud_l, v_l - vd_l, delta - delta_des])
                 e_norm_left.extend([x_l - xd_l, y_l - yd_l, delta - delta_des])
 
             elif self.use_3d_matrix_feature and not self.use_delta_matrix:
-                measurement_left.extend([x_l, y_l, Z])
+                measurement_left.extend([u_l, v_l, Z])
                 e_pixel_left.extend([u_l - ud_l, v_l - vd_l, Z - Z_DES])
                 e_norm_left.extend([x_l - xd_l, y_l - yd_l, Z - Z_DES])
 
             elif not self.use_3d_matrix_feature and self.use_delta_matrix:
-                measurement_left.extend([x_l, y_l])
+                measurement_left.extend([u_l, v_l])
                 e_pixel_left.extend([u_l - ud_l, v_l - vd_l])
                 e_norm_left.extend([x_l - xd_l, y_l - yd_l])
 
             elif not self.use_3d_matrix_feature and not self.use_delta_matrix:
-                measurement_left.extend([x_l, y_l])
+                measurement_left.extend([u_l, v_l])
                 e_pixel_left.extend([u_l - ud_l, v_l - vd_l])
                 e_norm_left.extend([x_l - xd_l, y_l - yd_l])
 
