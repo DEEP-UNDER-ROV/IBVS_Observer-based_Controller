@@ -13,7 +13,7 @@ from rcl_interfaces.msg import SetParametersResult
 from sensor_msgs.msg import Imu
 from cv_bridge import CvBridge
 
-from parameter import *
+from .parameter import *
 
 class IBVSRCController(Node):
     def __init__(self):
