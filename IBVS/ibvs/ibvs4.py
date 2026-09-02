@@ -1,5 +1,3 @@
-## Stereo-enhanced IBVS Ls 3x6 all normalized
-
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
@@ -15,7 +13,7 @@ from rcl_interfaces.msg import SetParametersResult
 from sensor_msgs.msg import Imu
 from cv_bridge import CvBridge
 
-from ibvs.parameter import *
+from parameter import *
 
 class IBVSRCController(Node):
     def __init__(self):
@@ -848,9 +846,9 @@ class IBVSRCController(Node):
         if not self.enable_camera_noise:
             return z_camera.copy()
 
-        sigma_x = sigma_u_px / FX
-        sigma_y = sigma_v_px / FY
-        sigma_Z = sigma_Z_m
+        sigma_x = float(0.334788) / FX
+        sigma_y = float(0.363501) / FY
+        sigma_Z = float(0.01)
         noise = np.zeros(self.n_ft, dtype=np.float64)
 
         for i in range(self.N):
@@ -1170,7 +1168,7 @@ class IBVSRCController(Node):
 
     # =========================================================
     def camera_body_adjoint(self):
-        S = self.skew(P_BC)
+        S = self.skew(P_BC_0)
         T_bc = np.block([
             [R_CB,           -S @ R_CB],
             [np.zeros((3,3)),     R_CB]])
@@ -1179,7 +1177,7 @@ class IBVSRCController(Node):
 
     # =========================================================
     def b_to_c_velocity(self, nu_B):
-        S = self.skew(P_BC)
+        S = self.skew(P_BC_0)
 
         T_CB = np.block([
             [R_CB,            -R_CB @ S],
@@ -1548,7 +1546,7 @@ class IBVSRCController(Node):
         w = Vc[3:]
 
         Wb = R_CB @ w
-        Vb = R_CB @ v + np.cross(Wb, P_BC.reshape(3))
+        Vb = R_CB @ v + np.cross(Wb, P_BC_0.reshape(3))
 
         Vb[0] = Vb[0]
         Vb[1] = Vb[1]

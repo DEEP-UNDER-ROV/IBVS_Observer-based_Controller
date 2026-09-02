@@ -29,6 +29,7 @@ setup(
             'ibvs = ibvs.ibvs:main',
             'ibvs2 = ibvs.ibvs2:main',
             'ibvs3 = ibvs.ibvs3:main',
+            'ibvs4 = ibvs.ibvs4:main',
             'heave_trim = ibvs.heave_trim:main',
         ],
     },
