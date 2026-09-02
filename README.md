@@ -121,22 +121,12 @@ ros2 launch ibvs ibvs
 
 ## Published Topics
 
-| Topic                 | Description              |
-| --------------------- | ------------------------ |
-| `/apriltag/corners`   | AprilTag corner features |
-| `/ibvs/error`         | Image feature error      |
-| `/ibvs/vel_body`      | Desired body velocity    |
-| `/ibvs/pwm_debug`     | IBVS PWM Control         |
-| `/mavros/rc/override` | RC override commands     |
-
----
-
-## Controller Parameters
-
-| Parameter      | Description              |
-| -------------- | -------------------------|
-| `Kp`           | Proportional gain        |
-| `Ki`           | Integral gain            |
-| `mu`           | Pseudoinverse Dampening  |
-
----
+| Topic                 | Description               |
+| --------------------- | ------------------------  |
+| `/apriltag/corners`   | AprilTag position corner features  |
+| `/detection1`         | Left IR Camera pixel detection   |
+| `/ibvs/error/px`      | Pixel Image feature error |
+| `/ibvs/nu_B_hat`      | Estimated body velocity   |
+| `/ibvs/ukf/data`      | UKF data debug            |
+| `/mavros/rc/override` | RC override commands      |
+| `/camera/overlay`     | GCS Stream Visualizaiton  |
