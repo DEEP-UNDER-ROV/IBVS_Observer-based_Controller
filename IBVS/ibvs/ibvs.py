@@ -32,7 +32,7 @@ class IBVSRCController(Node):
         self.sub_detection = self.create_subscription(AprilTagDetectionArray, "/detection1", self.cb_detection_left, 10)
         # self.camera_gyro_sub = self.create_subscription(Imu, '/camera/camera/gyro/sample', self.cb_camera_gyro, 200)
         # self.camera_accel_sub = self.create_subscription(Imu, '/camera/camera/accel/sample', self.cb_camera_accel, 100)
-        self.fcu_imu_sub = self.create_subscription(Imu, '/mavros/imu/data', self.cb_fcu_imu, imu_qos)
+        self.fcu_imu_sub = self.create_subscription(Imu, '/mavros/imu/data_raw', self.cb_fcu_imu, imu_qos)
 
         # ---------------- Publishers ----------------
         self.rc_override_pub = self.create_publisher(OverrideRCIn, "/mavros/rc/override", 10)
