@@ -90,8 +90,7 @@ class UKF_Estimator:
 
         self.q_vB = 1e-3
         self.q_wB = 1e-3
-
-        self.q_aB = 1e-5
+        self.q_aB = 1e-2
 
         self.sigma_bg_rw = 7.692845772051322e-7
         self.sigma_ba_rw = 0.003597694747410243
@@ -188,8 +187,8 @@ class UKF_Estimator:
         q_Sc = np.tile(q_Sc, self.N)
 
         if self.shared.tag_lost:
-            adaptive_q_vB = self.q_vB * 1e-4  # Heavily dampen velocity uncertainty growth
-            adaptive_q_wB = self.q_wB * 1e-4
+            adaptive_q_vB = self.q_vB * 1e-2  # Heavily dampen velocity uncertainty growth
+            adaptive_q_wB = self.q_wB * 1e-2
         else:
             adaptive_q_vB = self.q_vB
             adaptive_q_wB = self.q_wB
@@ -234,6 +233,7 @@ class UKF_Estimator:
         self.shared.ukf_initialized = True
         self._log_info("UKF initialized from stereo camera measurement.")
 
+    # =========================================================
     def _sanitize_covariance(self, P, min_eig=1e-8):
         P = np.asarray(P, dtype=np.float64)
 
@@ -281,8 +281,8 @@ class UKF_Estimator:
 
         return P
 
-
-    def generate_sigma_points(self, x, P):
+    # =========================================================
+    def generate_sigma_points_new(self, x, P):
 
         x = np.asarray(x, dtype=np.float64).reshape(self.ukf_state)
         P = np.asarray(P, dtype=np.float64)
@@ -338,8 +338,6 @@ class UKF_Estimator:
         raise RuntimeError(
             "[UKF] Cholesky failed even after covariance regularization"
         )
-
-
 
     # =========================================================
     def generate_sigma_points(self, x, P):
@@ -417,8 +415,15 @@ class UKF_Estimator:
     # =========================================================
     def ukf_process_model(self, state, dt, last_distance=None, tau=None,):
         state = np.asarray(state, dtype=np.float64).reshape(self.ukf_state)
-        # last_depth = np.asarray(last_depth, dtype=np.float64).reshape(self.N)
-        # last_delta = np.asarray(last_delta, dtype=np.float64).reshape(self.N)
+        if last_distance is None:
+            self.get_logger().warn("last_distance is None")
+            return
+            
+        last_distance = np.asarray(last_distance, dtype=np.float64).reshape(self.N)
+
+        if len(last_distance) != self.N:
+            self.get_logger().warn(f"Broken depth dimension: expected {self.N}, got {len(last_distance)}")
+            return  
 
         s_C, v_B, w_B, b_o, b_g, a_B, b_a = self.unpack_state(state)
 
