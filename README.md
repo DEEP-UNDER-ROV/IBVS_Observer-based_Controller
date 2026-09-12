@@ -123,15 +123,15 @@ ros2 launch ibvs record_full.launch.py
 
 ## Published Topics
 
-| Topic                 | Description               |
-| --------------------- | ------------------------  |
-| `/apriltag/corners`   | AprilTag position corner features  |
-| `/detection1`         | Left IR camera pixel detection   |
-| `/detection2`         | Right IR ccamera pixel detection   |
-| `/ibvs/error/px`      | Pixel image feature error |
-| `/ibvs/error/no`      | Normalize image feature error |
-| `/ibvs/nu_B_hat`      | Estimated body velocity   |
+| Topic                 | Description                       |
+| --------------------- | --------------------------------- |
+| `/apriltag/corners`   | AprilTag position corner features |
+| `/detection1`         | Left IR camera pixel detection    |
+| `/detection2`         | Right IR ccamera pixel detection  |
+| `/ibvs/error/px`      | Pixel image feature error         |
+| `/ibvs/error/no`      | Normalize image feature error     |
+| `/ibvs/nu_B_hat`      | Estimated body velocity           |
 | `/ibvs/pos_hat`       | Estimated position in FLU frame   |
-| `/ibvs/ukf/data`      | UKF data debug            |
-| `/mavros/rc/override` | RC override commands      |
-| `/camera/overlay`     | GCS Stream Visualizaiton  |
+| `/ibvs/ukf/data`      | UKF data debug                    |
+| `/mavros/rc/override` | RC override commands              |
+| `/camera/overlay`     | GCS Stream Visualizaiton          |
