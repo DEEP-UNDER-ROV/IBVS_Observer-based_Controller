@@ -2,14 +2,14 @@ import numpy as np
 from .parameter import *
 
 class IBVS_Controller:
-    def __init__(self, shared, N=4, use_3d_matrix_feature=True, use_dls=False, use_delta_matrix=False,):
-        self.use_3d_matrix_feature = use_3d_matrix_feature
-        self.use_delta_matrix = use_delta_matrix
-        self.dls_matrix = use_dls
+    def __init__(self, shared, N=4, matrix_3d=True, use_dls=False, matrix_delta=False,):
+        self.matrix_3d = matrix_3d
+        self.matrix_delta = matrix_delta
+        self.control_dls = use_dls
         self.N = N
         self.shared = shared
 
-        self.geometry = IBVS_Geometry(N=self.N, use_3d_matrix_feature=self.use_3d_matrix_feature,)
+        self.geometry = IBVS_Geometry(N=self.N, matrix_3d=self.matrix_3d,)
 
         self.Minv = np.linalg.inv(M)
 
@@ -31,7 +31,7 @@ class IBVS_Controller:
     # =========================================================
     @property
     def feature_dim(self):
-        return 3 * self.N if self.use_3d_matrix_feature else 2 * self.N
+        return 3 * self.N if self.matrix_3d else 2 * self.N
 
     # =========================================================
     def reset(self):
@@ -40,42 +40,6 @@ class IBVS_Controller:
         self.L_dot = None
         self.e_integral = None
        
-    # =========================================================
-    def compute_damping(self, nu):
-        nu = nu.flatten()
-        linear = Dlin @ nu
-        quadratic = Dquad @ (np.abs(nu) * nu)
-
-        return (linear + quadratic).reshape(-1,1)
-
-    def compute_coriolis(self, nu):
-        u,v,w,p,q,r = nu.flatten()
-        C = np.array([
-            [0,0,0,   0,  m*w, -m*v],
-            [0,0,0, -m*w,  0,   m*u],
-            [0,0,0, m*v, -m*u,    0],
-
-            [0,   m*w, -m*v,   0,    Izz*r,  -Iyy*q],
-            [-m*w, 0,   m*u, -Izz*r,   0,     Ixx*p],
-            [m*v, -m*u,  0,   Iyy*q, -Ixx*p,      0]])
-
-        return C @ nu
-
-    def compute_restoring(self):
-        return np.zeros((6,1))
-
-    # =========================================================
-    def compute_alpha(self, L):
-        return L @ self.geometry.T_bc_0 @ self.Minv
-    
-    # =========================================================
-    def compute_gamma(self, nu):
-        gamma = (self.compute_coriolis(nu) +
-                self.compute_damping(nu) +
-                self.compute_restoring())
-
-        return gamma
-
     # =========================================================
     def update_L_hat(self, feature_hat, last_distance=None, tag_lost=False):
         if last_distance is None:
@@ -87,16 +51,16 @@ class IBVS_Controller:
         
         feature_hat = np.asarray(feature_hat, dtype=float).flatten()
 
-        if self.use_3d_matrix_feature and self.use_delta_matrix:
+        if self.matrix_3d and self.matrix_delta:
             self.L_hat = self.geometry.build_interaction_matrix_delta(feature_hat)
 
-        elif self.use_3d_matrix_feature and not self.use_delta_matrix:
+        elif self.matrix_3d and not self.matrix_delta:
             self.L_hat = self.geometry.build_interaction_matrix(feature_hat)
 
-        elif not self.use_3d_matrix_feature and self.use_delta_matrix:
+        elif not self.matrix_3d and self.matrix_delta:
             self.L_hat = self.geometry.build_interaction_matrix_delta(feature_hat, last_distance)
 
-        elif not self.use_3d_matrix_feature and not self.use_delta_matrix:
+        elif not self.matrix_3d and not self.matrix_delta:
             self.L_hat = self.geometry.build_interaction_matrix(feature_hat, last_distance)
 
         return self.L_hat
@@ -137,7 +101,7 @@ class IBVS_Controller:
 
         Ldot_rows = []
 
-        if self.use_3d_matrix_feature and self.use_delta_matrix:
+        if self.matrix_3d and self.matrix_delta:
             for i in range(self.N):
                 idx = 3 * i
                 x, y, delta = feature_hat[idx:idx + 3]
@@ -146,7 +110,7 @@ class IBVS_Controller:
                 delta_dot = feature_dot[idx + 2, 0]
                 Ldot_rows.append(self.geometry.interaction_matrix_delta_3d_dot_pixel(x, y, delta, x_dot, y_dot, delta_dot))
 
-        elif self.use_3d_matrix_feature and not self.use_delta_matrix:
+        elif self.matrix_3d and not self.matrix_delta:
             for i in range(self.N):
                 idx = 3 * i
                 x, y, Z = feature_hat[idx:idx + 3]
@@ -155,7 +119,7 @@ class IBVS_Controller:
                 Z_dot = feature_dot[idx + 2, 0]
                 Ldot_rows.append(self.geometry.interaction_matrix_3d_dot_pixel(x, y, Z, x_dot, y_dot, Z_dot))
 
-        elif not self.use_3d_matrix_feature and self.use_delta_matrix:
+        elif not self.matrix_3d and self.matrix_delta:
             last_distance = np.asarray(last_distance, dtype=float).reshape(self.N)
             for i in range(self.N):
                 idx = 2 * i
@@ -169,7 +133,7 @@ class IBVS_Controller:
 
                 Ldot_rows.append(self.geometry.interaction_matrix_delta_2d_dot_pixel(x, y, delta, x_dot, y_dot, delta_dot))
 
-        elif not self.use_3d_matrix_feature and not self.use_delta_matrix:
+        elif not self.matrix_3d and not self.matrix_delta:
             last_distance = np.asarray(last_distance, dtype=float).reshape(self.N)
             for i in range(self.N):
                 idx = 2 * i
@@ -199,14 +163,14 @@ class IBVS_Controller:
         if self.L_hat is None or self.L_dot is None or nu_B_hat is None:
             return np.zeros(6)
 
-        alpha = self.compute_alpha(self.L_hat)
-        gamma = self.compute_gamma(nu_B_hat)
+        alpha = self.geometry.compute_alpha(self.L_hat)
+        gamma = self.geometry.compute_gamma(nu_B_hat)
         nu_C_hat = self.geometry.T_bc_0 @ nu_B_hat
         e_dot_hat = L @ nu_C_hat
         l_dot = self.L_dot @ nu_B_hat
         gams = alpha @ gamma
 
-        if self.dls_matrix:
+        if self.control_dls:
             A = L.T @ L + mu**2 * np.eye(6)
             L_pinv = np.linalg.solve(A, L.T)
             v_P = - self.Kp @ L_pinv @ e_pixel
@@ -236,13 +200,13 @@ class IBVS_Controller:
         if self.L_hat is None or self.L_dot is None or nu_B_hat is None:
             return np.zeros(6)
 
-        alpha = self.compute_alpha(self.L_hat)
-        gamma = self.compute_gamma(nu_B_hat)
+        alpha = self.geometry.compute_alpha(self.L_hat)
+        gamma = self.geometry.compute_gamma(nu_B_hat)
         e_dot_hat = self.L_hat @ self.geometry.T_bc_0 @ nu_B_hat
         l_dot = self.L_dot @ self.geometry.T_bc_0 @ nu_B_hat
         gams = alpha @ gamma
 
-        if self.dls_matrix:
+        if self.control_dls:
             A = alpha.T @ alpha + mu**2 * np.eye(6)
             tau_P = - self.Kp @ np.linalg.solve(A, alpha.T @ e_pixel).reshape(6)
             tau_D = - self.Kd @ np.linalg.solve(A, alpha.T @ e_dot_hat).reshape(6)
@@ -277,8 +241,8 @@ class IBVS_Controller:
         if self.L_hat is None or self.L_dot is None:
             return np.zeros(6)
 
-        alpha = self.compute_alpha(self.L_hat)
-        gamma = self.compute_gamma(nu_B_hat)
+        alpha = self.geometry.compute_alpha(self.L_hat)
+        gamma = self.geometry.compute_gamma(nu_B_hat)
 
         A = alpha.T @ alpha + mu**2 * np.eye(6)
 
@@ -335,7 +299,7 @@ class IBVS_Controller:
 
         self.update_L_hat(feature_hat, last_distance, tag_lost)
 
-        alpha = self.compute_alpha(self.L_hat)
+        alpha = self.geometry.compute_alpha(self.L_hat)
         idx_xy = [0, 1, 3, 4]
         idx_z  = [2, 5]
         
@@ -348,7 +312,7 @@ class IBVS_Controller:
         A_xy = A[np.ix_(idx_xy, idx_xy)] # 4x4 matrix
         A_z  = A[np.ix_(idx_z, idx_z)]   # 2x2 matrix
 
-        gamma = self.compute_gamma(nu_B_hat)
+        gamma = self.geometry.compute_gamma(nu_B_hat)
         e_dot_hat = self.L_hat @ self.geometry.T_bc_0 @ nu_B_hat
         l_dot = self.L_dot @ self.geometry.T_bc_0 @ nu_B_hat
         

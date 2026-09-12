@@ -75,6 +75,7 @@ class UKF_Estimator:
         self.idx_bg = slice(self.n_dim + 9, self.n_dim + 12)
         self.idx_aB = slice(self.n_dim + 12, self.n_dim + 15)
         self.idx_ba = slice(self.n_dim + 15, self.n_dim + 18)
+        self.idx_pN = slice(self.n_dim + 18, self.n_dim + 21)
         
 
         self.idx_nuB = np.concatenate([
@@ -93,6 +94,8 @@ class UKF_Estimator:
         self.q_vB = 1e-3
         self.q_wB = 1e-3
         self.q_aB = 1e-5
+
+        self.q_pN = 1e-4
 
         self.sigma_bg_rw = 7.692845772051322e-7
         self.sigma_ba_rw = 0.003597694747410243
@@ -123,7 +126,7 @@ class UKF_Estimator:
             self.logger.info(text)
 
     # =========================================================
-    def pack_state(self, s_C, v_B, w_B, b_o, b_g, a_B, b_a): 
+    def pack_state(self, s_C, v_B, w_B, b_o, b_g, a_B, b_a, p_N): 
         state = np.zeros(self.ukf_state, dtype=np.float64)
 
         state[self.idx_s] = np.asarray(s_C, dtype=np.float64).reshape(-1)
@@ -133,6 +136,7 @@ class UKF_Estimator:
         state[self.idx_bg] = np.asarray(b_g, dtype=np.float64).reshape(-1)
         state[self.idx_aB] = np.asarray(a_B, dtype=np.float64).reshape(-1)
         state[self.idx_ba] = np.asarray(b_a, dtype=np.float64).reshape(-1)
+        state[self.idx_pN] = np.asarray(p_N, dtype=np.float64).reshape(-1)
         
         return state
     
@@ -147,8 +151,9 @@ class UKF_Estimator:
         b_g = state[self.idx_bg].copy()
         a_B = state[self.idx_aB].copy()
         b_a = state[self.idx_ba].copy()
+        p_N = state[self.idx_pN].copy()
         
-        return s_C, v_B, w_B, b_o, b_g, a_B, b_a
+        return s_C, v_B, w_B, b_o, b_g, a_B, b_a, p_N
 
     # =========================================================
     def reset(self):
@@ -165,6 +170,7 @@ class UKF_Estimator:
         P0[self.idx_bg, self.idx_bg] = (np.eye(3) * 1e-4)
         P0[self.idx_aB, self.idx_aB] = (np.eye(3) * 1e-4)
         P0[self.idx_ba, self.idx_ba] = (np.eye(3) * 1e-2)
+        P0[self.idx_pN, self.idx_pN] = (np.eye(3) * 1e-2)
      
         self.ukf_P = P0
     
@@ -193,6 +199,7 @@ class UKF_Estimator:
         Q[self.idx_bg, self.idx_bg] = (np.eye(3) * self.sigma_bg_rw**2 * dt)
         Q[self.idx_aB, self.idx_aB] = (np.eye(3) * self.q_aB)
         Q[self.idx_ba, self.idx_ba] = (np.eye(3) * self.sigma_ba_rw**2 * dt)
+        Q[self.idx_pN, self.idx_pN] = (np.eye(3) * self.q_pN)
 
         return Q
 
@@ -207,8 +214,9 @@ class UKF_Estimator:
         b_g0 = np.zeros(3)
         a_B0 = np.zeros(3)
         b_a0 = np.zeros(3)
+        p_N0 = np.zeros(3)
 
-        self.ukf_x = self.pack_state(s_C0, v_B0, w_B0, b_o0, b_g0, a_B0, b_a0)
+        self.ukf_x = self.pack_state(s_C0, v_B0, w_B0, b_o0, b_g0, a_B0, b_a0, p_N0)
 
         P0 = np.zeros((self.ukf_state, self.ukf_state), dtype=np.float64)
         if self.matrix_3d:
@@ -221,6 +229,7 @@ class UKF_Estimator:
         P0[self.idx_bg, self.idx_bg] = (np.eye(3) * 1e-4)
         P0[self.idx_aB, self.idx_aB] = (np.eye(3) * 1e-4)
         P0[self.idx_ba, self.idx_ba] = (np.eye(3) * 1e-2)  
+        P0[self.idx_pN, self.idx_pN] = (np.eye(3) * 1e-2) 
         
         self.ukf_P = P0
         self.shared.ukf_initialized = True
@@ -321,7 +330,7 @@ class UKF_Estimator:
         return np.asarray(nu_dot_B, dtype=np.float64).reshape(6)
     
     # =========================================================
-    def ukf_process_model(self, state, dt, last_distance=None, tau=None,):
+    def ukf_process_model(self, state, dt, last_distance=None, tau=None, R_NB=None,):
         state = np.asarray(state, dtype=np.float64).reshape(self.ukf_state)
         if last_distance is None:
             self.logger.warn("last_distance is None")
@@ -333,7 +342,10 @@ class UKF_Estimator:
             self.logger.warn(f"Broken depth dimension: expected {self.N}, got {len(last_distance)}")
             return  
 
-        s_C, v_B, w_B, b_o, b_g, a_B, b_a = self.unpack_state(state)
+        if R_NB is None:
+            R_NB = np.eye(3)
+
+        s_C, v_B, w_B, b_o, b_g, a_B, b_a, p_N = self.unpack_state(state)
 
         nu_B = np.concatenate([v_B, w_B])
         nu_C = self.T_bc_0 @ nu_B
@@ -372,16 +384,17 @@ class UKF_Estimator:
         bo_next = b_o
         bg_next = b_g
         ba_next = b_a
+        pN_next = p_N + dt * (R_NB @ v_B)
 
-        return self.pack_state(sC_next, vB_next, wB_next, bo_next, bg_next, aB_next, ba_next)
+        return self.pack_state(sC_next, vB_next, wB_next, bo_next, bg_next, aB_next, ba_next, pN_next)
     
     # =========================================================
-    def ukf_predict(self, x, P, dt, last_distance=None, tau=None,):
+    def ukf_predict(self, x, P, dt, last_distance=None, tau=None, R_NB=None,):
         sigma = self.generate_sigma_points(x, P)
         sigma_pred = np.zeros_like(sigma)
 
         for i in range(self.n_sigma):
-            sigma_pred[i] = (self.ukf_process_model(sigma[i], dt, last_distance, tau))
+            sigma_pred[i] = self.ukf_process_model(sigma[i], dt, last_distance, tau, R_NB)
 
         x_pred = self.weighted_mean(sigma_pred)
         P_pred = self.state_covariance(sigma_pred, x_pred)
@@ -431,7 +444,7 @@ class UKF_Estimator:
     def imu_fcu_measurement_model(self, state, R_NB,):
         state = np.asarray(state, dtype=np.float64).reshape(self.ukf_state)
 
-        s_C, v_B, w_B, b_o, b_g, a_B, b_a = self.unpack_state (state)
+        s_C, v_B, w_B, b_o, b_g, a_B, b_a, p_N = self.unpack_state (state)
 
         g_N = np.array([0.0, 0.0, 9.80665],dtype=np.float64)
         g_B = R_NB.T @ g_N
