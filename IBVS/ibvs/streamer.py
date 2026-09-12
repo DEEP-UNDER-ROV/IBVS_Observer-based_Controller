@@ -4,26 +4,126 @@ from rclpy.node import Node
 import cv2
 import numpy as np
 from cv_bridge import CvBridge
+from rclpy.qos import QoSProfile, ReliabilityPolicy
 
-from sensor_msgs.msg import Image
+from std_msgs.msg import Float32MultiArray
+from std_srvs.srv import Trigger
+from geometry_msgs.msg import PolygonStamped, Point32, Twist, Point, Vector3Stamped, TwistStamped
+from sensor_msgs.msg import Image, CompressedImage, CameraInfo
+from mavros_msgs.msg import OverrideRCIn, RCIn, RCOut
+from apriltag_msgs.msg import AprilTagDetectionArray
 
-from ibvs.parameter import *
+from .parameter import *
 
 
-class CleanVideoStreamer(Node):
+class VideoStreamer(Node):
     def __init__(self):
-        super().__init__("stream")
-        
-        # --- Parameter Setup for Dynamic Topic Selection ---
-        # Default topic can be easily switched to IR or RGB via runtime arguments
+        super().__init__("Video_Streamer")
+        self.declare_parameter("mode", "auto")
         self.declare_parameter("image_topic", "/camera/camera/color/image_raw")
-        self.target_topic = self.get_parameter("image_topic").get_parameter_value().string_value
-        
-        self.get_logger().info(f"Stream Initiated. Subscribed to: {self.target_topic}")
+
+        self.mode = self.get_parameter("mode").value
+        self.image_topic = self.get_parameter("image_topic").value
+
+        self.get_logger().info(f"Configured mode: {self.mode}")
 
         self.bridge = CvBridge()
 
-        # --- GStreamer Pipeline Configuration ---
+        self.detected_corners = None
+        self.current_rc = None
+        self.current_rc_override = None
+        self.current_vel_hat  = None
+        self.current_err = None
+        self.last_poly = None
+
+        self.desired, R = self.compute_desired_corners_pixel(Z_DES=Z_DES, pitch_deg=PITCH_DES_DEG, yaw_deg=YAW_DES_DEG, roll_deg=ROLL_DES_DEG)
+
+        # ---------------- Publishers ----------------
+        # overlay image publishers (overlay -> ROS + compressed for QGC)
+        self.overlay_pub = self.create_publisher(Image, "/camera/overlay/image_raw", 10)
+        self.comp_pub    = self.create_publisher(CompressedImage, "/camera/overlay/image_raw/compressed", 10)
+
+        self.video_writer = None
+
+        self.compressed = False
+        self.overlay_image_topic = None
+        self.active_mode = None
+        self.active_image_type = None
+        self.mode_subs = []
+
+        if self.mode == "auto":
+            self.get_logger().info("AUTO mode: waiting for relevant topics...")
+            self.auto_timer = self.create_timer(2.0, self.auto_detect_mode)
+            self.refresh_srv = self.create_service(Trigger, "~/refresh",self.cb_refresh)
+
+        else:
+            self.configure_mode(self.mode)
+
+        self.img_pub_period = 1.0 / 20.0 # image @ 20 Hz
+        self.last_img_pub = 0.0
+
+    # =========================================================
+    def auto_detect_mode(self):
+        topics = dict(self.get_topic_names_and_types())
+        detection_exists = "/detection1" in topics
+
+        compressed_topic = "/corrected/left/image_raw/compressed"
+        raw_topic = "/corrected/left/image_raw"
+
+        compressed_exists = compressed_topic in topics
+        raw_exists = raw_topic in topics
+
+        if detection_exists and (compressed_exists or raw_exists):
+            desired_mode = "overlay"
+            if compressed_exists:
+                desired_image_type = "compressed"
+            else:
+                desired_image_type = "raw"
+
+        elif self.image_topic in topics:
+            desired_mode = "clean"
+            desired_image_type = None
+
+        else:
+            return
+
+        self.get_logger().info(f"Initial configuration detected -> {desired_mode}" + (f" ({desired_image_type}) " if desired_image_type else ""))
+
+        if desired_mode == "clean":
+            self.compressed = False
+            self.overlay_image_topic = None
+            self.configure_mode("clean")
+
+            self.active_mode = "clean"
+            self.active_image_type = None
+
+        elif desired_mode == "overlay":
+            if desired_image_type == "compressed":
+                self.compressed = True
+                self.overlay_image_topic = compressed_topic
+
+            else:
+                self.compressed = False
+                self.overlay_image_topic = raw_topic
+
+            self.configure_mode("overlay")
+            self.active_mode = "overlay"
+            self.active_image_type = desired_image_type
+
+        if self.auto_timer is not None:
+            self.destroy_timer(self.auto_timer)
+            self.auto_timer = None
+
+        self.get_logger().info(f"Auto-detection complete. Active mode: {self.active_mode}")
+
+    # =========================================================
+    def configure_mode(self, mode):
+        if mode not in ["overlay", "clean"]:
+            self.get_logger().error(f"Invalid mode: {mode}")
+            return
+
+        self.active_mode = mode
+
         gst_pipeline = (
             f"appsrc is-live=true block=true do-timestamp=true format=time ! "
             f"queue ! "
@@ -35,58 +135,412 @@ class CleanVideoStreamer(Node):
             f"rtph264pay config-interval=-1 pt=96 ! "
             f"udpsink host={QGC_IP} port={QGC_PORT} sync=false async=false"
         )
-        
+
         self.video_writer = cv2.VideoWriter(
-            gst_pipeline, cv2.CAP_GSTREAMER, 0, 30, (stream_w, stream_h), True
-        )
+            gst_pipeline, cv2.CAP_GSTREAMER, 0, 30, (stream_w, stream_h),True)
 
         if not self.video_writer.isOpened():
-            self.get_logger().error("GStreamer pipeline initialization failed!")
+            self.get_logger().error("GStreamer pipeline failed!")
+
+        self.get_logger().info(f"Streaming {mode.upper()} video to {QGC_IP}:{QGC_PORT}")
+
+        if mode == "overlay":
+            self.configure_overlay_mode_subs()
+
+        elif mode == "clean":
+            self.configure_clean_mode_subs()
+
+    # =========================================================
+    def configure_clean_mode_subs(self):
+        self.get_logger().info(f"CLEAN mode image topic: {self.image_topic}")
+        sub = self.create_subscription(Image, self.image_topic, self.cb_image_clean, 10)
+        self.mode_subs.append(sub)
+        sub = self.create_subscription(RCIn, "/mavros/rc/in", self.cb_rc, 10)
+        self.mode_subs.append(sub)
+
+    # =========================================================
+    def configure_overlay_mode_subs(self):
+        qos = QoSProfile(depth=10)
+        qos.reliability = ReliabilityPolicy.BEST_EFFORT
+
+        # ---------------- mode_subs ----------------
+        sub = self.create_subscription(AprilTagDetectionArray, "/detection1", self.cb_detection, 10)
+        self.mode_subs.append(sub)
+        sub = self.create_subscription(OverrideRCIn, "/mavros/rc/override", self.cb_rc_override, 10)
+        self.mode_subs.append(sub)
+        sub = self.create_subscription(TwistStamped, "/ibvs/nu_B_hat", self.cb_vel_hat, 10)
+        self.mode_subs.append(sub)
+        sub = self.create_subscription(Float32MultiArray, "/ibvs/error/px", self.cb_err, 10)
+        self.mode_subs.append(sub)
+
+        sub = self.create_subscription(PolygonStamped,"/apriltag/corners",self.cb_corners,qos)
+        self.mode_subs.append(sub)
+
+        topics = dict(self.get_topic_names_and_types())
+
+        compressed_topic = "/corrected/left/image_raw/compressed"
+        raw_topic = "/corrected/left/image_raw"
+
+        if compressed_topic in topics:
+            self.overlay_image_topic = compressed_topic
+            self.compressed = True
+
+            self.get_logger().info(
+                f"OVERLAY image: COMPRESSED -> {compressed_topic}")
+
+            sub = self.create_subscription(CompressedImage, compressed_topic, self.cb_image_overlay_compressed, 10)
+            self.mode_subs.append(sub)
+
+        elif raw_topic in topics:
+            self.overlay_image_topic = raw_topic
+            self.compressed = False
+
+            self.get_logger().info(
+                f"OVERLAY image: RAW -> {raw_topic}")
+
+            sub = self.create_subscription(Image, raw_topic, self.cb_image_overlay, 10)
+            self.mode_subs.append(sub)
+
         else:
-            self.get_logger().info(f"Streaming H.264 video cleanly to {QGC_IP}:{QGC_PORT}")
-
-        # --- Subscription ---
-        self.create_subscription(Image, self.target_topic, self.cb_image, 10)
-
-    def cb_image(self, msg):
-        try:
-            # Handle mono/IR streams and standard RGB streams seamlessly
-            if "infra" in self.target_topic:
-                # IR streams are single-channel (mono8); convert to bgr8 for GStreamer conversion pipeline
-                frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='mono8')
-                frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
-            else:
-                frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='bgr8')
-        except Exception as e:
-            self.get_logger().warn(f"Failed to convert frame: {e}")
+            self.get_logger().warn("OVERLAY selected but no corrected image exists.")
             return
 
-        h, w = frame.shape[:2]
+        self.detected_corners = None
+        self.current_rc = None
+        self.current_rc_override = None
+        self.current_vel_hat = None
+        self.current_err = None
+        self.last_poly = None      
 
-        # Enforce exact bounding constraints for the underlying x264 video stream
-        if (h, w) != (stream_w, stream_h):
-            gst_frame = cv2.resize(frame, (stream_w, stream_h), interpolation=cv2.INTER_LINEAR)
+    # =========================================================
+    def stop_current_mode(self):
+        if self.active_mode is None:
+            return
+
+        self.get_logger().info(f"Stopping current mode: {self.active_mode}")
+
+        for sub in self.mode_subs:
+            self.destroy_subscription(sub)
+
+        self.mode_subs.clear()
+        self.active_mode = None       
+
+    # =========================================================
+    def cb_refresh(self, request, response):
+        self.get_logger().info("Manual topic refresh requested.")
+        self.stop_current_mode()
+
+        self.active_mode = None
+        self.active_image_type = None
+        self.overlay_image_topic = None
+        self.compressed = False
+        self.auto_detect_mode()
+
+        response.success = True
+        response.message = (f"Current mode: {self.active_mode}" if self.active_mode is not None else "No valid configuration detected.")
+
+        return response
+
+    # =========================================================
+    def cb_rc(self, msg): self.current_rc = msg
+    def cb_rc_override(self, msg): self.current_rc_override = msg
+    def cb_vel_hat(self, msg): self.current_vel_hat = msg
+    def cb_err(self, msg): self.current_err = msg
+    def cb_corners(self, msg): self.last_poly = msg
+
+    # =========================================================
+    def cb_detection(self, msg):
+        if not msg.detections:
+            self.detected_corners = None
+            return
+    
+        det = msg.detections[0]
+        self.detected_corners = np.array([[c.x, c.y] for c in det.corners],dtype=np.float32)
+
+    # =========================================================
+    def cb_image_clean(self, msg):
+        try:
+            if "infra" in self.image_topic.lower():
+                frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="mono8")
+                frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+
+            else:
+                frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+
+        except Exception as e:
+            self.get_logger().warn(f"Failed to convert clean frame: {e}")
+            return
+
+        frame = self.resize_for_stream(frame)
+        self.push_frame(frame, msg.header.stamp, publish_overlay=False)
+
+    # =========================================================
+    def cb_image_overlay(self, msg):
+        try:
+            frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+
+        except Exception as e:
+            self.get_logger().warn(f"Failed to convert overlay frame: {e}")
+            return
+
+        stream = frame.copy()
+
+        desired_draw = (self.desired .astype(np.int32) .reshape(-1, 1, 2))
+        cv2.polylines(stream, [desired_draw], True, (0, 0, 255), 2)
+
+        if self.detected_corners is not None:
+            pts = (self.detected_corners.reshape((-1, 1, 2)).astype(np.int32))
+            cv2.polylines(stream, [pts], True, (0, 255, 0), 2)
+
+        self.draw_error(stream)
+        self.draw_rc(stream)
+        self.draw_nu_hat(stream)
+
+        stream = self.resize_for_stream(stream)
+
+        self.push_frame(stream,
+            msg.header.stamp,
+            publish_overlay=True,
+            frame_id=msg.header.frame_id)
+
+    # =========================================================
+    def cb_image_overlay_compressed(self, msg):
+        try:
+            np_arr = np.frombuffer(msg.data, np.uint8)
+            frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+
+            if frame is None:
+                self.get_logger().warn("Failed to decode compressed image")
+                return
+
+        except Exception as e:
+            self.get_logger().warn(f"Failed to decode compressed frame: {e}")
+            return
+
+        stream = frame.copy()
+        desired_draw = (self.desired.astype(np.int32).reshape(-1, 1, 2))
+        cv2.polylines(stream, [desired_draw], True, (0, 0, 255), 2)
+
+        if self.detected_corners is not None:
+            pts = (self.detected_corners.reshape((-1, 1, 2)).astype(np.int32))
+            cv2.polylines(stream, [pts], True, (0, 255, 0), 2)
+
+        self.draw_error(stream)
+        self.draw_rc(stream)
+        self.draw_nu_hat(stream)
+
+        stream = self.resize_for_stream(stream)
+
+        self.push_frame(
+            stream,
+            msg.header.stamp,
+            publish_overlay=True,
+            frame_id=msg.header.frame_id
+        )
+        
+    # =========================================================
+    def compute_desired_corners_pixel(self, Z_DES, pitch_deg=0.0, yaw_deg=0.0, roll_deg=0.0):
+        half = TAG_SIZE / 2.0
+
+        # Tag corners in tag frame (meters)
+        corners = np.array([
+            [-half,  half, 0],
+            [ half,  half, 0],
+            [ half, -half, 0],
+            [-half, -half, 0]
+        ], dtype=float)
+
+        # Desired roll (rotation about image/camera Z-axis)
+        rx = np.deg2rad(pitch_deg)
+        ry = np.deg2rad(yaw_deg)
+        rz = np.deg2rad(roll_deg)
+
+        Rx = np.array([
+            [1,0,0],
+            [0,np.cos(rx),-np.sin(rx)],
+            [0,np.sin(rx), np.cos(rx)]
+        ])
+
+        Ry = np.array([
+            [ np.cos(ry),0,np.sin(ry)],
+            [0,1,0],
+            [-np.sin(ry),0,np.cos(ry)]
+        ])
+
+        Rz = np.array([
+            [np.cos(rz),-np.sin(rz),0],
+            [np.sin(rz), np.cos(rz),0],
+            [0,0,1]
+        ])
+
+        # Rotate corners
+        R = Rz @ Ry @ Rx
+        corners = (R @ corners.T).T
+        corners[:,2] += Z_DES
+
+        # Perspective projection
+        x = corners[:, 0] / corners[:,2]
+        y = corners[:, 1] / corners[:,2]
+
+        # Convert to pixels
+        u = FX * x + CX
+        v = FY * y + CY
+
+        desired_pixels = np.column_stack((u, v))
+
+        return desired_pixels, R
+
+    # =========================================================
+    def draw_error(self, stream):
+        if self.current_err is None:
+            return
+
+        e = np.asarray(self.current_err.data,dtype=float)
+
+        x0 = 60
+        y0 = 60
+        dy = 20
+
+        num_elements = len(e)
+        if num_elements == 12:
+            for i in range(4):
+                eu, ev, eZ = e[i * 3:(i + 1) * 3]
+                cv2.putText(stream, f"P{i+1}: eu={eu:+.2f}px ev={ev:+.2f}px eZ={eZ:+.2f}m",
+                    (x0, y0 + i * dy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+
+        elif num_elements == 8:
+            e = e.reshape(4, 2)
+            for i in range(4):
+                eu, ev = e[i]
+                cv2.putText(stream, f"P{i+1}: eu={eu:+.2f} ev={ev:+.2f}",
+                    (x0, y0 + i * dy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+
         else:
-            gst_frame = frame
+            cv2.putText(
+                stream,f"ERR: {num_elements} values", (x0, y0),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
 
-        # Push the un-overlayed raw frame directly out via RTP
-        if self.video_writer.isOpened():
-            self.video_writer.write(gst_frame)
+    # =========================================================
+    def draw_rc(self, stream):
+        y  = 180
+        y2 = y
 
+        if self.active_mode == "clean":
+            if self.current_rc is not None:
+                rc = self.current_rc
+                try:
+                    cv2.putText(stream, f"RC PWM", (50, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (51,255,153), 2)
+                    cv2.putText(stream, f"Surge :{rc.channels[4]:+.2f}", (50,y + 20), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+                    cv2.putText(stream, f"Sway  :{rc.channels[5]:+.2f}", (50,y + 40), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+                    cv2.putText(stream, f"Heave :{rc.channels[2]:+.2f}", (50,y + 60), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+                    cv2.putText(stream, f"Roll  :{rc.channels[1]:+.2f}", (50,y + 80), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+                    cv2.putText(stream, f"Pitch :{rc.channels[0]:+.2f}", (50,y + 100), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+                    cv2.putText(stream, f"Yaw   :{rc.channels[3]:+.2f}", (50,y + 120), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+
+                except IndexError:
+                    pass
+
+        elif self.active_mode == "overlay":
+            if self.current_rc_override is not None:
+                override = self.current_rc_override
+                try:
+                    cv2.putText(stream, f"RC IBVS", (50, y2), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (51,255,153), 2)
+                    cv2.putText(stream, f"Surge :{override.channels[4]:+.2f}", (50,y2 + 20), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+                    cv2.putText(stream, f"Sway  :{override.channels[5]:+.2f}", (50,y2 + 20), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+                    cv2.putText(stream, f"Heave :{override.channels[2]:+.2f}", (50,y2 + 20), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+                    cv2.putText(stream, f"Roll  :{override.channels[1]:+.2f}", (50,y2 + 20), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+                    cv2.putText(stream, f"Pitch :{override.channels[0]:+.2f}", (50,y2 + 20), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+                    cv2.putText(stream, f"Yaw   :{override.channels[3]:+.2f}", (50,y2 + 20), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+
+                except IndexError:
+                    pass
+            
+    # =========================================================
+    def draw_nu_hat(self, stream):
+        if self.current_vel_hat is None:
+            return
+        
+        nu = np.array([
+            self.current_vel_hat.twist.linear.x,
+            self.current_vel_hat.twist.linear.y,
+            self.current_vel_hat.twist.linear.z,
+            self.current_vel_hat.twist.angular.x,
+            self.current_vel_hat.twist.angular.y,
+            self.current_vel_hat.twist.angular.z,
+        ], dtype=float)
+        
+        cv2.putText(stream, f"vBx :{nu[0]:+.3f}", (480,60), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+        cv2.putText(stream, f"vBy :{nu[1]:+.3f}", (590,60), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+        cv2.putText(stream, f"vBz :{nu[2]:+.3f}", (700,60), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+        cv2.putText(stream, f"wBx :{nu[3]:+.3f}", (480,80), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+        cv2.putText(stream, f"wBy :{nu[4]:+.3f}", (590,80), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+        cv2.putText(stream, f"wBz :{nu[5]:+.3f}", (700,80), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+            
+    # =========================================================
+    def resize_for_stream(self, frame):
+        h, w = frame.shape[:2]
+        if (h, w) != (stream_h, stream_w):
+
+            frame = cv2.resize(frame,
+                (stream_w, stream_h),
+                interpolation=cv2.INTER_LINEAR)
+
+        return frame
+
+    # =========================================================
+    def push_frame(self, frame, stamp, 
+        publish_overlay=False,
+        frame_id="camera_link"):
+
+        if self.video_writer is not None:
+            if self.video_writer.isOpened():
+                self.video_writer.write(frame)
+
+        # Only publish ROS overlay topics in overlay mode
+        if not publish_overlay:
+            return
+
+        now = (self.get_clock().now().nanoseconds* 1e-9)
+        if now - self.last_img_pub < self.img_pub_period:
+            return
+
+        self.last_img_pub = now
+
+        overlay = self.bridge.cv2_to_imgmsg(frame, encoding="bgr8")
+        overlay.header.stamp = stamp
+        overlay.header.frame_id = (frame_id
+            if frame_id
+            else "camera_link")
+
+        self.overlay_pub.publish(overlay)
+
+        encoded = cv2.imencode(".jpg",frame,[cv2.IMWRITE_JPEG_QUALITY,80])
+
+        if encoded[0]:
+            comp = CompressedImage()
+            comp.header = overlay.header
+            comp.format = "jpeg"
+            comp.data = encoded[1].tobytes()
+            self.comp_pub.publish(comp)
+
+    # =========================================================
     def destroy_node(self):
-        if hasattr(self, 'video_writer') and self.video_writer.isOpened():
-            self.video_writer.release()
-            self.get_logger().info("GStreamer Pipeline released.")
+        if self.video_writer is not None:
+            if self.video_writer.isOpened():
+                self.video_writer.release()
+                self.get_logger().info("GStreamer pipeline released.")
+
         super().destroy_node()
 
 
 def main():
     rclpy.init()
-    node = CleanVideoStreamer()
+    node = VideoStreamer()
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
+
     finally:
         node.destroy_node()
         try:
