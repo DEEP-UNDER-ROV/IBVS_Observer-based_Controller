@@ -99,7 +99,7 @@ ros2 run ibvs ibvs --ros-args -p (parameter):=True/False
 ---
 
 ## Data record for Analyze
-To record the necessary topics for data analyzation, this scripts can be run as follows:
+To record the necessary topics for data analyzation, this scripts can be run as follows:<br>
 Minimalize record (for later code debug):
 ```bash
 bash scripts/record_min.sh
