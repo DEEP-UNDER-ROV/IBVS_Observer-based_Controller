@@ -16,8 +16,6 @@ from cv_bridge import CvBridge
 from .parameter import *
 
 from .control import IBVS_Controller
-from .so_control import Stereo_IBVS_Control
-from .so_estimator import Stereo_UKF_Estimator
 from .estimator import UKF_Estimator
 
 class IBVSRCController(Node):
@@ -32,6 +30,7 @@ class IBVSRCController(Node):
         self.sub_detection = self.create_subscription(AprilTagDetectionArray, "/detection1", self.cb_detection_left, 10)
         # self.camera_gyro_sub = self.create_subscription(Imu, '/camera/camera/gyro/sample', self.cb_camera_gyro, 200)
         # self.camera_accel_sub = self.create_subscription(Imu, '/camera/camera/accel/sample', self.cb_camera_accel, 100)
+        self.fcu_att_sub = self.create_subscription(Imu, '/mavros/imu/data', self.cb_fcu_att, qos_profile_sensor_data)
         self.fcu_imu_sub = self.create_subscription(Imu, '/mavros/imu/data_raw', self.cb_fcu_imu, imu_qos)
 
         # ---------------- Publishers ----------------
@@ -62,7 +61,7 @@ class IBVSRCController(Node):
 
         # ---------- UKF Parameter ----------
         self.N = 4 
-        self.n_dim = 3 * self.N if self.use_3d_matrix_feature else 2 * self.N
+        self.n_dim = 3 * self.N if self.matrix_3d else 2 * self.N
         self.n_cam = self.n_dim
 
         self.ukf_state = self.n_cam + 18
@@ -74,34 +73,42 @@ class IBVSRCController(Node):
         self.b_g_hat = np.zeros((3,1))
 
         self.shared = Shared_State()
-        self.geometry = IBVS_Geometry(N=self.N, use_3d_matrix_feature=self.use_3d_matrix_feature,)           
+        self.geometry = IBVS_Geometry(N=self.N, matrix_3d=self.matrix_3d,)           
 
         self.estimator = UKF_Estimator(
             shared=self.shared,
             nx=self.ukf_state,
             feature_dim=self.n_dim,
             N=self.N,
-            use_3d_matrix_feature=self.use_3d_matrix_feature,
-            use_delta_matrix=self.use_delta_matrix,
+            matrix_3d=self.matrix_3d,
+            matrix_delta=self.matrix_delta,
             stereo_cam=self.stereo_cam,
+            use_fossen=self.ukf_fossen,
             logger=self.get_logger(),)
 
         self.controller = IBVS_Controller(
             shared=self.shared, 
             N=self.N,
-            use_3d_matrix_feature=self.use_3d_matrix_feature,
-            use_dls=self.dls_matrix, 
-            use_delta_matrix=self.use_delta_matrix,)
+            matrix_3d=self.matrix_3d,
+            use_dls=self.control_dls, 
+            matrix_delta=self.matrix_delta,)
 
     def stamp_to_sec(self, stamp):
         return (float(stamp.sec) + float(stamp.nanosec) * 1e-9)
 
     def declare_state(self):
         # ---------------------- System Flags ----------------------
-        self.use_3d_matrix_feature = True
-        self.use_delta_matrix = False
-        self.dls_matrix = True
-        self.stereo_cam = False
+        self.declare_parameter('matrix_3d', True)
+        self.declare_parameter('matrix_delta', False)
+        self.declare_parameter('control_dls', True)
+        self.declare_parameter('stereo_cam', False)
+        self.declare_parameter('ukf_fossen', False)
+
+        self.matrix_3d    = self.get_parameter('matrix_3d').value
+        self.matrix_delta = self.get_parameter('matrix_delta').value
+        self.control_dls  = self.get_parameter('control_dls').value
+        self.stereo_cam   = self.get_parameter('stereo_cam').value
+        self.ukf_fossen   = self.get_parameter('ukf_fossen').value
 
         self.use_camera_ukf = True
         self.tag_was_initialized = False
@@ -111,43 +118,36 @@ class IBVSRCController(Node):
         self.depth_img = None
         self.detected_uv_left = None
         
-        # Timestamps
+        # ------------------------ Timestamps -----------------------
         self.last_tag_time = None
         self.last_imu_time = None
+        self.attitude_time = None
         self.last_camera_time = None
-        self.last_control_time = None
-        self.last_estimator_dt = None
         self.control_dt = None
-
-        # --------------------- Camera IMU Data ---------------------
-        self.acc_camera = None
-        self.acc_camera_B = None
-        self.gyro_camera = None
-        self.acc_camera_stamp = None
-        self.gyro_camera_stamp = None
-
-        # ----------------------- FCU IMU Data -----------------------
-        self.acc_fcu = None
-        self.acc_fcu_B = None
-        self.gyro_fcu = None
-        self.acc_fcu_stamp = None
-        self.gyro_fcu_stamp = None
 
         # -------------------------- Timers --------------------------
         self.camera_imu_timeshift = 0.00702
-        self.TAG_TIMEOUT = 1  # seconds
+        self.TAG_TIMEOUT = 0.2  # seconds
         self.create_timer(0.1, self.tag_watchdog)
         self.create_timer(1.0/25.0, self.publish_rc)
-        # self.create_timer(1.0 / 100.0, self.cb_control)
 
         # ------------------------- Variables ------------------------
         self.latest_distance_mean = None
         self.e_norm_left = None
         self.e_pixel_left = None
+
         self.last_imu_innovation = None
         self.last_camera_innovation = None
 
-        self.get_logger().info(f"IBVS Control {'3D Matrix' if self.use_3d_matrix_feature else '2D Matrix'} with feature {'Depth' if not self.use_delta_matrix else 'Delta'}")
+        self.R_NB_latest = np.eye(3)
+
+        self.get_logger().info(
+            f"IBVS {'3D' if self.matrix_3d else '2D'} matrix framework "
+            f"with {'delta' if self.matrix_delta else 'depth'} variable. "
+            f"Control using {'DLS' if self.control_dls else 'Non-DLS'} "
+            f"of {'Stereo' if self.stereo_cam else 'non-stereo'} cam "
+            f"with UKF using {'Fossen' if self.ukf_fossen else 'IMU'} model."
+        )
 
     # =========================================================
     def reset_state(self):
@@ -162,6 +162,7 @@ class IBVSRCController(Node):
 
     # =========================================================
     def update_estimator(self):
+        self.s_hat  = self.estimator.ukf_x[self.estimator.idx_s].copy()
         self.vB_hat = self.estimator.ukf_x[self.estimator.idx_vB].copy()
         self.wB_hat = self.estimator.ukf_x[self.estimator.idx_wB].copy()
         self.bo_hat = self.estimator.ukf_x[self.estimator.idx_bo].copy()
@@ -170,46 +171,31 @@ class IBVSRCController(Node):
         self.ba_hat = self.estimator.ukf_x[self.estimator.idx_ba].copy()
         
         self.nu_B_hat = np.concatenate([self.vB_hat, self.wB_hat]).reshape(6, 1)
-
         self.nu_C_hat = self.geometry.T_bc_0 @ self.nu_B_hat
-        self.s_hat = self.estimator.ukf_x[self.estimator.idx_s].copy()
 
     # =========================================================
-    def cb_control(self):
+    def cb_control(self, control_dt):
         if not self.shared.ukf_initialized or not self.shared.camera_measurement_valid or self.shared.last_distance is None:
             return
 
         if self.e_norm_left is None or self.e_pixel_left is None:
             return
 
-        now = self.get_clock().now()
-
-        if self.last_control_time is None:
-            self.last_control_time = now
-            return
-
-        control_dt = (now - self.last_control_time).nanoseconds * 1e-9
-        self.last_control_time = now
-
-        if control_dt <= 0.0 or control_dt > 0.2:
-            self.get_logger().warn(f"Invalid control dt: {control_dt:.6f} s")
-            return
-
         self.control_dt = control_dt
 
         distance_mean = self.latest_distance_mean
         tau = self.controller.compute_control_tau_classic( 
-                feature_hat=self.s_hat,
+                feature_hat = self.s_hat,
                 last_distance = self.shared.last_distance,
 
-                nu_B_hat=self.nu_B_hat,
-                distance=distance_mean,
+                nu_B_hat = self.nu_B_hat,
+                distance = distance_mean,
 
-                e_norm=self.e_norm_left,
-                e_pixel=self.e_pixel_left,
+                e_norm = self.e_norm_left,
+                e_pixel = self.e_pixel_left,
 
-                dt=control_dt,
-                tag_lost=self.shared.tag_lost,)
+                dt = control_dt,
+                tag_lost = self.shared.tag_lost,)
 
         self.tau_ukf = np.asarray(tau, dtype=float).reshape(6,1)
         self.publish_torque(self.torque_pub, "body", self.get_clock().now().to_msg(), tau)
@@ -218,6 +204,11 @@ class IBVSRCController(Node):
         self.current_pwm = pwm
         
         self.log_debug(tau, self.nu_B_hat, pwm)
+
+    # =========================================================
+    def cb_fcu_att(self, msg):
+        self.R_NB_latest = self.quaternion_to_rotation(msg.orientation)
+        self.attitude_time = self.stamp_to_sec(msg.header.stamp)
 
     # =========================================================
     def cb_fcu_imu(self, msg):
@@ -231,11 +222,14 @@ class IBVSRCController(Node):
         dt = t - self.last_imu_time
         self.last_imu_time = t
 
+        if self.R_NB_latest is None or self.attitude_time is None:
+            return
+
         if dt <= 0.0 or dt > 0.1:
             self.get_logger().warn(f"Invalid IMU dt: {dt:.6f} s")
             return
 
-        R_NB = self.quaternion_to_rotation(msg.orientation)
+        R_NB = self.R_NB_latest.copy()
 
         accel_flu = np.array([msg.linear_acceleration.x, 
                               msg.linear_acceleration.y, 
@@ -253,9 +247,13 @@ class IBVSRCController(Node):
             return
 
         last_distance = self.shared.last_distance
-        tau = self.tau_ukf
+        if last_distance is None:
+            last_distance = getattr(self, 'prev_valid_distance', Z_DES)
+        else:
+            self.prev_valid_distance = last_distance
 
-        x_pred, P_pred, sigma_pred = self.estimator.ukf_predict(self.estimator.ukf_x, self.estimator.ukf_P, dt, last_distance,)
+        tau = self.tau_ukf
+        x_pred, P_pred, sigma_pred = self.estimator.ukf_predict(self.estimator.ukf_x, self.estimator.ukf_P, dt, last_distance, tau)
         self.estimator.ukf_x, self.estimator.ukf_P, imu_innovation, S_imu, K_imu, z_imu_mean = self.estimator.ukf_update_imu_fcu(x_pred, P_pred, sigma_pred, z_imu, R_NB)
 
         self.last_imu_innovation = imu_innovation.copy()
@@ -263,7 +261,7 @@ class IBVSRCController(Node):
         self.ukf_logging(source="imu", innovation=imu_innovation, K=K_imu, z=z_imu)
 
         self.publish_twist(self.nu_B_hat_pub, "nu_B_hat", msg.header.stamp, self.vB_hat, self.wB_hat)
-        self.cb_control()
+        self.cb_control(dt)
          
     # =========================================================
     def cb_corners(self, msg):
@@ -293,14 +291,13 @@ class IBVSRCController(Node):
         if result is None:
             return
 
-        (distance_mean, e_pixel_img, e_pixel_left, e_norm_left, measurement_left) = result
+        distance_mean, e_pixel_img, e_pixel_left, e_norm_left, measurement_left = result
 
         z_cam = measurement_left.flatten()
         self.publish_error(e_pixel_left, e_norm_left)
 
         if not self.shared.ukf_initialized:
             self.estimator.initialize_ukf_from_camera(measurement_left)
-
             self.shared.ukf_initialized = True
             self.tag_was_initialized = True
             self.shared.camera_measurement_valid = True
@@ -310,35 +307,24 @@ class IBVSRCController(Node):
         if tag_reacquired:
             self.get_logger().warn("AprilTag REACQUIRED -> resetting UKF/controller state.")
             self.reset_state()
-
             self.estimator.initialize_ukf_from_camera(measurement_left)
-
             self.shared.ukf_initialized = True
             self.shared.camera_measurement_valid = True
             self.shared.tag_lost = False
-
-            self.get_logger().info("UKF reinitialized after tag reacquisition.")
             return
 
         sigma_camera = self.estimator.generate_sigma_points(self.estimator.ukf_x, self.estimator.ukf_P)
         self.estimator.ukf_x, self.estimator.ukf_P, cam_innovation, S_cam, K_cam, z_cam_mean = self.estimator.ukf_update_camera(self.estimator.ukf_x, self.estimator.ukf_P, sigma_camera, z_cam)
 
-        self.last_camera_dt = camera_dt
         self.last_camera_innovation = cam_innovation.copy()
-
         self.update_estimator()
         self.ukf_logging(source="camera", innovation=cam_innovation, K=K_cam, z=z_cam)
-
-        
 
         self.latest_distance_mean = distance_mean
         self.e_norm_left = e_norm_left.copy()
         self.e_pixel_left = e_pixel_left.copy()
         self.last_camera_innovation = cam_innovation.copy()
         self.shared.camera_measurement_valid = True
-
-        self.cb_control()
-
 
 
 
@@ -457,27 +443,27 @@ class IBVSRCController(Node):
 
             e_pixel_img.extend([u_l - ud_l, v_l - vd_l])
 
-            if self.use_3d_matrix_feature and self.use_delta_matrix:
+            if self.matrix_3d and self.matrix_delta:
                 measurement_left.extend([u_l, v_l, delta])
                 e_pixel_left.extend([u_l - ud_l, v_l - vd_l, delta - delta_des])
                 e_norm_left.extend([x_l - xd_l, y_l - yd_l, delta - delta_des])
 
-            elif self.use_3d_matrix_feature and not self.use_delta_matrix:
+            elif self.matrix_3d and not self.matrix_delta:
                 measurement_left.extend([u_l, v_l, Z])
                 e_pixel_left.extend([u_l - ud_l, v_l - vd_l, Z - Z_DES])
                 e_norm_left.extend([x_l - xd_l, y_l - yd_l, Z - Z_DES])
 
-            elif not self.use_3d_matrix_feature and self.use_delta_matrix:
+            elif not self.matrix_3d and self.matrix_delta:
                 measurement_left.extend([u_l, v_l])
                 e_pixel_left.extend([u_l - ud_l, v_l - vd_l])
                 e_norm_left.extend([x_l - xd_l, y_l - yd_l])
 
-            elif not self.use_3d_matrix_feature and not self.use_delta_matrix:
+            elif not self.matrix_3d and not self.matrix_delta:
                 measurement_left.extend([u_l, v_l])
                 e_pixel_left.extend([u_l - ud_l, v_l - vd_l])
                 e_norm_left.extend([x_l - xd_l, y_l - yd_l])
 
-        if not self.use_delta_matrix:
+        if not self.matrix_delta:
             distance = np.asarray(depth, dtype=np.float64).reshape(4, 1)
             distance_mean = float(np.mean(depth))
         else:
@@ -673,8 +659,8 @@ class IBVSRCController(Node):
             
             # Only reset to neutral IF the tag is actually lost
             self.current_pwm = [1500] * 18
-            self.current_pwm[2] = 1500 + 100
-            self.current_pwm[5] = 1500 - 30
+            # self.current_pwm[2] = 1500 + 100
+            # self.current_pwm[5] = 1500 - 30
 
 # =============================================================
 def main():

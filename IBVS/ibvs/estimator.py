@@ -3,23 +3,25 @@ from .parameter import *
 
 class UKF_Estimator:
     def __init__(self, shared, nx, feature_dim, N=4,
-        use_3d_matrix_feature=True,
-        use_delta_matrix=False,
+        matrix_3d=True,
+        matrix_delta=False,
         stereo_cam=None,
+        use_fossen=False,
         logger=None,
     ):
         self.ukf_state = nx
         self.n_dim = feature_dim
         self.N = N
-        self.use_3d_matrix_feature = use_3d_matrix_feature
-        self.use_delta_matrix = use_delta_matrix
+        self.matrix_3d = matrix_3d
+        self.matrix_delta = matrix_delta
         self.stereo_cam = stereo_cam
+        self.ukf_fossen = use_fossen
 
         # ROS-independent logging hook. The node can pass get_logger().
         self.logger = logger
         self.shared = shared
         
-        self.geometry = IBVS_Geometry(N=self.N, use_3d_matrix_feature=self.use_3d_matrix_feature,)
+        self.geometry = IBVS_Geometry(N=self.N, matrix_3d=self.matrix_3d,)
         # self.shared = Shared_State()
 
         self.T_bc_0 = self.geometry.T_bc_0
@@ -49,7 +51,7 @@ class UKF_Estimator:
         self.R_camera = np.zeros((self.n_dim, self.n_dim),dtype=np.float64)
         R_left = np.zeros((self.n_dim, self.n_dim), dtype=np.float64)
 
-        if self.use_3d_matrix_feature:
+        if self.matrix_3d:
             for i in range(self.N):
                 idx = 3 * i
                 R_left[idx, idx] = self.sigma_u_px**2
@@ -90,7 +92,7 @@ class UKF_Estimator:
 
         self.q_vB = 1e-3
         self.q_wB = 1e-3
-        self.q_aB = 1e-2
+        self.q_aB = 1e-5
 
         self.sigma_bg_rw = 7.692845772051322e-7
         self.sigma_ba_rw = 0.003597694747410243
@@ -113,6 +115,7 @@ class UKF_Estimator:
 
         self.ukf_x = np.zeros((self.ukf_state,1))
         self.ukf_P = np.eye(self.ukf_state)*1e-3
+        self.tau_hat = np.zeros((6,1))
 
     # =========================================================
     def _log_info(self, text):
@@ -152,7 +155,7 @@ class UKF_Estimator:
         self.ukf_x = np.zeros((self.ukf_state, 1), dtype=np.float64)
 
         P0 = np.zeros((self.ukf_state, self.ukf_state), dtype=np.float64)
-        if self.use_3d_matrix_feature:
+        if self.matrix_3d:
             P0[self.idx_s, self.idx_s] = (np.eye(self.n_dim) * 1e-3)
         else:
             P0[self.idx_s, self.idx_s] = (np.eye(self.n_dim) * 1e-3)
@@ -166,20 +169,10 @@ class UKF_Estimator:
         self.ukf_P = P0
     
     # =========================================================
-    def fossen_acceleration(self, nu_B, tau):
-        nu_B = np.asarray(nu_B, dtype=np.float64).reshape(6)
-        tau = np.asarray(tau, dtype=np.float64).reshape(6)
-
-        gamma = self.compute_gamma(nu_B.reshape(-1,1))
-        nu_dot_B = self.Minv @ (tau + gamma)
-
-        return nu_dot_B
-    
-    # =========================================================
     def build_Q(self, dt):
         Q = np.zeros((self.ukf_state, self.ukf_state), dtype=np.float64)
 
-        if self.use_3d_matrix_feature:
+        if self.matrix_3d:
             q_Sc = np.array([self.q_u, self.q_v, self.q_Z],dtype=np.float64)
         else:
             q_Sc = np.array([self.q_u, self.q_v],dtype=np.float64)
@@ -187,8 +180,8 @@ class UKF_Estimator:
         q_Sc = np.tile(q_Sc, self.N)
 
         if self.shared.tag_lost:
-            adaptive_q_vB = self.q_vB * 1e-2  # Heavily dampen velocity uncertainty growth
-            adaptive_q_wB = self.q_wB * 1e-2
+            adaptive_q_vB = self.q_vB * 0.1  # Heavily dampen velocity uncertainty growth
+            adaptive_q_wB = self.q_wB * 0.1
         else:
             adaptive_q_vB = self.q_vB
             adaptive_q_wB = self.q_wB
@@ -218,7 +211,7 @@ class UKF_Estimator:
         self.ukf_x = self.pack_state(s_C0, v_B0, w_B0, b_o0, b_g0, a_B0, b_a0)
 
         P0 = np.zeros((self.ukf_state, self.ukf_state), dtype=np.float64)
-        if self.use_3d_matrix_feature:
+        if self.matrix_3d:
             P0[self.idx_s, self.idx_s] = (np.eye(self.n_dim) * 1e-3)
         else:
             P0[self.idx_s, self.idx_s] = (np.eye(self.n_dim) * 1e-3)
@@ -234,127 +227,31 @@ class UKF_Estimator:
         self._log_info("UKF initialized from stereo camera measurement.")
 
     # =========================================================
-    def _sanitize_covariance(self, P, min_eig=1e-8):
-        P = np.asarray(P, dtype=np.float64)
-
-        if P.shape != (self.ukf_state, self.ukf_state):
-            raise ValueError(
-                f"Invalid covariance shape: {P.shape}, "
-                f"expected {(self.ukf_state, self.ukf_state)}"
-            )
-
-        if not np.all(np.isfinite(P)):
-            self._log_info("[UKF] ERROR: covariance contains NaN/Inf")
-            return None
-
-        # Symmetrize
-        P = 0.5 * (P + P.T)
-
-        # Eigen decomposition
-        eigvals, eigvecs = np.linalg.eigh(P)
-
-        min_before = np.min(eigvals)
-        max_before = np.max(eigvals)
-
-        # Reject catastrophic covariance
-        if not np.isfinite(max_before):
-            self._log_info("[UKF] ERROR: invalid covariance eigenvalues")
-            return None
-
-        # Clamp eigenvalues
-        eigvals = np.maximum(eigvals, min_eig)
-
-        P = (eigvecs * eigvals) @ eigvecs.T
-
-        # Symmetrize again
-        P = 0.5 * (P + P.T)
-
-        # Add explicit diagonal jitter
-        P += 1e-10 * np.eye(self.ukf_state)
-
-        if min_before < min_eig:
-            self._log_info(
-                f"[UKF] covariance repaired: "
-                f"min_eig={min_before:.3e} -> {min_eig:.3e}, "
-                f"max_eig={max_before:.3e}"
-            )
-
-        return P
-
-    # =========================================================
-    def generate_sigma_points_new(self, x, P):
-
-        x = np.asarray(x, dtype=np.float64).reshape(self.ukf_state)
-        P = np.asarray(P, dtype=np.float64)
-
-        if not np.all(np.isfinite(x)):
-            raise RuntimeError("[UKF] State contains NaN/Inf")
-
-        P = self._sanitize_covariance(P, min_eig=1e-8)
-
-        if P is None:
-            raise RuntimeError("[UKF] Could not sanitize covariance")
-
-        scale = self.ukf_state + self.lambda_
-
-        # scale must be positive
-        if scale <= 0:
-            raise RuntimeError(
-                f"[UKF] Invalid sigma-point scale: {scale}"
-            )
-
-        # Try Cholesky with progressively larger jitter.
-        jitter_values = [
-            1e-10,
-            1e-9,
-            1e-8,
-            1e-7,
-            1e-6,
-            1e-5,
-        ]
-
-        for jitter in jitter_values:
-            try:
-                P_chol = P + jitter * np.eye(self.ukf_state)
-
-                S = np.linalg.cholesky(scale * P_chol)
-
-                sigma = np.zeros(
-                    (self.n_sigma, self.ukf_state),
-                    dtype=np.float64
-                )
-
-                sigma[0] = x
-
-                for i in range(self.ukf_state):
-                    sigma[i + 1] = x + S[:, i]
-                    sigma[i + 1 + self.ukf_state] = x - S[:, i]
-
-                return sigma
-
-            except np.linalg.LinAlgError:
-                continue
-
-        raise RuntimeError(
-            "[UKF] Cholesky failed even after covariance regularization"
-        )
-
-    # =========================================================
     def generate_sigma_points(self, x, P):
-        x = np.asarray(x, dtype=np.float64).reshape(self.ukf_state)
-        P = np.asarray(P, dtype=np.float64)
+        if not np.isfinite(P).all() or not np.isfinite(self.ukf_x).all():
+            self.logger.error("Resetting covariance.")
+            self.ukf_P = np.eye(self.ukf_state) * 1e-2
+            self.ukf_x = np.zeros(self.ukf_state)
+            
+            P = self.ukf_P
 
-        P = 0.5 * (P + P.T)
-        jitter = 1e-9 * np.eye(self.ukf_state)
+        P = (P + P.T) / 2.0
+        
+        max_cov = 1e3
+        P = np.clip(P, -max_cov, max_cov)
+        
+        jitter = np.eye(P.shape[0]) * 1e-6
+        P_fixed = P + jitter
+
+        scaled_P = (self.ukf_state + self.lambda_) * P_fixed
 
         try:
-            S = np.linalg.cholesky((self.ukf_state + self.lambda_) * (P + jitter))
-
+            S = np.linalg.cholesky(scaled_P)
         except np.linalg.LinAlgError:
-            eigvals, eigvecs = np.linalg.eigh(P)
-            eigvals = np.maximum(eigvals, 1e-12)
-            P_fixed = (eigvecs @ np.diag(eigvals) @ eigvecs.T)
-            S = np.linalg.cholesky((self.ukf_state + self.lambda_) * P_fixed)
+            scaled_P = (scaled_P + scaled_P.T) / 2.0
+            scaled_P = np.nan_to_num(scaled_P, nan=1e-6, posinf=max_cov, neginf=-max_cov)
+            U, Sigma, _ = np.linalg.svd(scaled_P)
+            S = U @ np.diag(np.sqrt(np.clip(Sigma, 0.0, None)))
 
         sigma = np.zeros((self.n_sigma, self.ukf_state), dtype=np.float64)
         sigma[0] = x
@@ -411,18 +308,29 @@ class UKF_Estimator:
             Pxz += self.Wc[i] * np.outer(dx, dz)
 
         return Pxz
+    
+    # =========================================================
+    def fossen_acceleration(self, nu_B, tau):
+        nu_B = np.asarray(nu_B, dtype=np.float64).reshape(6)
+        tau = np.asarray(tau, dtype=np.float64).reshape(6)
 
+        gamma = self.geometry.compute_gamma(nu_B.reshape(-1,1))
+        gamma = np.asarray(gamma, dtype=np.float64).reshape(6)
+        nu_dot_B = self.Minv @ (tau + gamma)
+
+        return np.asarray(nu_dot_B, dtype=np.float64).reshape(6)
+    
     # =========================================================
     def ukf_process_model(self, state, dt, last_distance=None, tau=None,):
         state = np.asarray(state, dtype=np.float64).reshape(self.ukf_state)
         if last_distance is None:
-            self.get_logger().warn("last_distance is None")
+            self.logger.warn("last_distance is None")
             return
             
         last_distance = np.asarray(last_distance, dtype=np.float64).reshape(self.N)
 
         if len(last_distance) != self.N:
-            self.get_logger().warn(f"Broken depth dimension: expected {self.N}, got {len(last_distance)}")
+            self.logger.warn(f"Broken depth dimension: expected {self.N}, got {len(last_distance)}")
             return  
 
         s_C, v_B, w_B, b_o, b_g, a_B, b_a = self.unpack_state(state)
@@ -430,33 +338,50 @@ class UKF_Estimator:
         nu_B = np.concatenate([v_B, w_B])
         nu_C = self.T_bc_0 @ nu_B
 
-        if self.use_3d_matrix_feature and self.use_delta_matrix:
+        if self.matrix_3d and self.matrix_delta:
             L_sigma = self.geometry.build_interaction_matrix_delta(s_C)
-        elif self.use_3d_matrix_feature and not self.use_delta_matrix:
+        elif self.matrix_3d and not self.matrix_delta:
             L_sigma = self.geometry.build_interaction_matrix(s_C)
-        elif not self.use_3d_matrix_feature and self.use_delta_matrix:
+        elif not self.matrix_3d and self.matrix_delta:
             L_sigma = self.geometry.build_interaction_matrix_delta(s_C, last_distance)
-        elif not self.use_3d_matrix_feature and not self.use_delta_matrix:
+        elif not self.matrix_3d and not self.matrix_delta:
             L_sigma = self.geometry.build_interaction_matrix(s_C, last_distance)
 
-        sC_next = s_C + dt * (L_sigma @ nu_C).reshape(-1)
-        vB_next = v_B + dt * a_B
-        wB_next = w_B + dt * b_o
+        if tau is None:
+            tau = self.tau_hat
+
+        tau = np.asarray(tau, dtype=np.float64).reshape(6)
+        nu_dot_B = self.fossen_acceleration(nu_B, tau)
+
+        if self.shared.tag_lost:
+            sC_next = s_C
+        else:
+            sC_next = s_C + dt * (L_sigma @ nu_C).reshape(-1)
+        
+        if self.ukf_fossen:
+            nu_B_next = nu_B + dt * nu_dot_B
+            vB_next = nu_B_next[:3]
+            wB_next = nu_B_next[3:]
+            aB_next = nu_dot_B[:3]
+
+        else:
+            vB_next = v_B + dt * a_B
+            wB_next = w_B + dt * b_o
+            aB_next = a_B
 
         bo_next = b_o
         bg_next = b_g
-        aB_next = a_B
         ba_next = b_a
 
         return self.pack_state(sC_next, vB_next, wB_next, bo_next, bg_next, aB_next, ba_next)
-
+    
     # =========================================================
-    def ukf_predict(self, x, P, dt, last_distance=None,):
+    def ukf_predict(self, x, P, dt, last_distance=None, tau=None,):
         sigma = self.generate_sigma_points(x, P)
         sigma_pred = np.zeros_like(sigma)
 
         for i in range(self.n_sigma):
-            sigma_pred[i] = (self.ukf_process_model(sigma[i], dt, last_distance,))
+            sigma_pred[i] = (self.ukf_process_model(sigma[i], dt, last_distance, tau))
 
         x_pred = self.weighted_mean(sigma_pred)
         P_pred = self.state_covariance(sigma_pred, x_pred)
@@ -503,11 +428,11 @@ class UKF_Estimator:
         return (x_update, P_update, innovation, S, K, z_mean)
 
     # =========================================================
-    def imu_fcu_measurement_model(self, state, R_NB):
+    def imu_fcu_measurement_model(self, state, R_NB,):
         state = np.asarray(state, dtype=np.float64).reshape(self.ukf_state)
 
         s_C, v_B, w_B, b_o, b_g, a_B, b_a = self.unpack_state (state)
-        
+
         g_N = np.array([0.0, 0.0, 9.80665],dtype=np.float64)
         g_B = R_NB.T @ g_N
 
@@ -519,7 +444,7 @@ class UKF_Estimator:
         return z_pred
 
     # =========================================================
-    def predict_imu_fcu_sigma_point(self, sigma_points, R_NB):
+    def predict_imu_fcu_sigma_point(self, sigma_points, R_NB,):
         z_sigma = np.zeros((self.n_sigma, 6), dtype=np.float64)
 
         for i in range(self.n_sigma):
@@ -528,7 +453,7 @@ class UKF_Estimator:
         return z_sigma
 
     # =========================================================
-    def ukf_update_imu_fcu(self, x_pred, P_pred, sigma_pred, z_imu, R_NB):
+    def ukf_update_imu_fcu(self, x_pred, P_pred, sigma_pred, z_imu, R_NB,):
         z_imu = np.asarray(z_imu, dtype=np.float64).reshape(6)
         z_sigma = self.predict_imu_fcu_sigma_point(sigma_pred, R_NB)
         z_mean = self.weighted_mean(z_sigma)

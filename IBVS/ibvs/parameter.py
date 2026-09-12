@@ -97,20 +97,56 @@ MAX_MOMEN = 10
 
 
 # --- QGC Port Configuration ---
-QGC_IP = "0.0.0.0"
+QGC_IP = "192.168.128.1"
 QGC_PORT = 5600
 
 stream_w = 848
 stream_h = 480
 
 class IBVS_Geometry:
-    def __init__(self, N=4, use_3d_matrix_feature=True,):
+    def __init__(self, N=4, matrix_3d=True,):
         self.N = N
-        self.use_3d_matrix_feature = use_3d_matrix_feature
+        self.matrix_3d = matrix_3d
 
-        self.T_bc_0 = self.transform_matrix(P_BC_0, R_CLB)
-        self.T_bc_1 = self.transform_matrix(P_BC_1, R_CRB)
+        self.T_bc_0 = self.transform_matrix(P_BC_0, R_CLB.T)
+        self.T_bc_1 = self.transform_matrix(P_BC_1, R_CRB.T)
+        self.Minv = np.linalg.inv(M)
 
+    # =========================================================
+    def compute_damping(self, nu):
+        nu = nu.flatten()
+        linear = Dlin @ nu
+        quadratic = Dquad @ (np.abs(nu) * nu)
+
+        return (linear + quadratic).reshape(-1,1)
+
+    def compute_coriolis(self, nu):
+        u,v,w,p,q,r = nu.flatten()
+        C = np.array([
+            [0,0,0,   0,  m*w, -m*v],
+            [0,0,0, -m*w,  0,   m*u],
+            [0,0,0, m*v, -m*u,    0],
+
+            [0,   m*w, -m*v,   0,    Izz*r,  -Iyy*q],
+            [-m*w, 0,   m*u, -Izz*r,   0,     Ixx*p],
+            [m*v, -m*u,  0,   Iyy*q, -Ixx*p,      0]])
+
+        return C @ nu
+
+    def compute_restoring(self):
+        return np.zeros((6,1))
+
+    def compute_gamma(self, nu):
+        gamma = (self.compute_coriolis(nu) +
+                self.compute_damping(nu) +
+                self.compute_restoring())
+
+        return np.asarray(gamma, dtype=np.float64).reshape(6)
+
+    # =========================================================
+    def compute_alpha(self, L):
+        return L @ self.T_bc_0 @ self.Minv
+    
     # =========================================================
     def skew(self, p):
         return np.array([
@@ -171,7 +207,7 @@ class IBVS_Geometry:
         state = np.asarray(state, dtype=float).flatten()
         rows = []
 
-        if self.use_3d_matrix_feature:
+        if self.matrix_3d:
             for i in range(self.N):
                 idx = 3 * i
                 u, v, Z = state[idx:idx + 3]
@@ -227,7 +263,7 @@ class IBVS_Geometry:
         state = np.asarray(state, dtype=float).flatten()
         rows = []
 
-        if self.use_3d_matrix_feature:
+        if self.matrix_3d:
             for i in range(self.N):
                 idx = 3 * i
                 u, v, deltas = state[idx:idx + 3]
