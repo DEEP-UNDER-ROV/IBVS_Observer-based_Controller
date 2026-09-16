@@ -30,20 +30,21 @@ class IBVSRCController(Node):
         self.sub_detection = self.create_subscription(AprilTagDetectionArray, "/detection1", self.cb_detection_left, 10)
         # self.camera_gyro_sub = self.create_subscription(Imu, '/camera/camera/gyro/sample', self.cb_camera_gyro, 200)
         # self.camera_accel_sub = self.create_subscription(Imu, '/camera/camera/accel/sample', self.cb_camera_accel, 100)
-        self.fcu_att_sub = self.create_subscription(Imu, '/mavros/imu/data', self.cb_fcu_att, qos_profile_sensor_data)
+        self.fcu_att_sub = self.create_subscription(Imu, '/mavros/imu/data', self.cb_fcu_att, imu_qos)
         self.fcu_imu_sub = self.create_subscription(Imu, '/mavros/imu/data_raw', self.cb_fcu_imu, imu_qos)
+        self.slam_vel_sub = self.create_subscription(TwistStamped, "/orb_slam3/velocity", self.cb_slam_vel, qos_profile_sensor_data)
 
         # ---------------- Publishers ----------------
         self.rc_override_pub = self.create_publisher(OverrideRCIn, "/mavros/rc/override", 10)
-        self.pwm_pub = self.create_publisher(Int16MultiArray, "/ibvs/pwm_debug", 10)
 
-        self.vel_body_pub = self.create_publisher(TwistStamped, "/ibvs/vel_body", 10)
-        self.nu_B_hat_pub = self.create_publisher(TwistStamped, "/ibvs/nu_B_hat", 10)
-        self.torque_pub = self.create_publisher(WrenchStamped, "/ibvs/torque", 10)
+        self.slam_vel_pub = self.create_publisher(TwistStamped, "/slam/velocity", 30)
+        self.nu_B_hat_pub = self.create_publisher(TwistStamped, "/ibvs/nu_B_hat", 30)
+        self.torque_pub   = self.create_publisher(WrenchStamped, "/ibvs/torque", 30)
 
-        self.ukf_data_pub = self.create_publisher(Float32MultiArray, "/ibvs/ukf/data", 10)
-        self.err_px_pub = self.create_publisher(Float32MultiArray, "/ibvs/error/px", 10)
-        self.err_no_pub = self.create_publisher(Float32MultiArray, "/ibvs/error/no", 10)
+        self.ukf_data_pub = self.create_publisher(Float32MultiArray, "/ibvs/ukf/data", 30)
+        self.err_px_pub   = self.create_publisher(Float32MultiArray, "/ibvs/error/px", 30)
+        self.err_no_pub   = self.create_publisher(Float32MultiArray, "/ibvs/error/no", 30)
+        self.err_img_pub  = self.create_publisher(Float32MultiArray, "/ibvs/error/img", 30)
 
         self.declare_state()
         self.current_pwm = [1500] * 18
@@ -287,14 +288,14 @@ class IBVSRCController(Node):
         self.last_tag_time = self.get_clock().now()
         self.shared.tag_lost = False
 
-        result = self.compute_image_error_stereo(msg)
+        result = self.compute_image_error_pixel(msg)
         if result is None:
             return
 
         distance_mean, e_pixel_img, e_pixel_left, e_norm_left, measurement_left = result
 
         z_cam = measurement_left.flatten()
-        self.publish_error(e_pixel_left, e_norm_left)
+        self.publish_error(e_pixel_left, e_norm_left, e_pixel_img)
 
         if not self.shared.ukf_initialized:
             self.estimator.initialize_ukf_from_camera(measurement_left)
@@ -326,6 +327,28 @@ class IBVSRCController(Node):
         self.last_camera_innovation = cam_innovation.copy()
         self.shared.camera_measurement_valid = True
 
+    def cb_slam_vel(self, msg):
+        slam_vel_flu = np.array([
+            msg.twist.linear.x,
+            msg.twist.linear.y,
+            msg.twist.linear.z])
+
+        slam_rot_flu = np.array([
+            msg.twist.angular.x,
+            msg.twist.angular.y,
+            msg.twist.angular.z])
+
+        slam_vel_ned = np.array([
+            slam_vel_flu[0],
+            -slam_vel_flu[1],
+            -slam_vel_flu[2]])
+        
+        slam_rot_ned = np.array([
+            slam_rot_flu[0],
+            -slam_rot_flu[1],
+            -slam_rot_flu[2]])
+
+        self.publish_twist(self.slam_vel_pub, "slam_vel", msg.header.stamp, slam_vel_ned, slam_rot_ned)
 
 
 
@@ -414,7 +437,7 @@ class IBVSRCController(Node):
         return x, y
     
     # =========================================================
-    def compute_image_error_stereo(self, msg):
+    def compute_image_error_pixel(self, msg):
         e_pixel_left = []
         e_norm_left = []
         measurement_left = []
@@ -477,8 +500,72 @@ class IBVSRCController(Node):
         e_pixel_img = np.asarray(e_pixel_img).reshape(-1, 1)        
         self.shared.last_distance = distance.copy()
 
-        return (distance_mean, e_pixel_img,
-                e_pixel_left, e_norm_left, measurement_left)
+        return (distance_mean, e_pixel_img, e_pixel_left, e_norm_left, measurement_left)
+
+    def compute_image_error_norm(self, msg):
+        e_pixel_left = []
+        e_norm_left = []
+        measurement_left = []
+
+        depth = []
+        deltas = []
+        e_pixel_img = []
+
+        pts = np.array([[p.x, p.y, p.z] for p in msg.polygon.points])
+        for i in range(4):
+            u_l, v_l = self.detected_uv_left[i]
+            Z = pts[i, 2]
+            if not np.isfinite(Z) or Z <= 0 or Z < 1e-4:
+                return None
+
+            x_l, y_l = self.pixel_to_norm(u_l, v_l)
+            delta =  bline / Z
+
+            depth.append(Z)
+            deltas.append(delta)
+
+            ud_l, vd_l = self.desired_pts[i]
+
+            xd_l, yd_l = self.pixel_to_norm(ud_l, vd_l)
+            delta_des = bline / Z_DES
+
+            e_pixel_img.extend([u_l - ud_l, v_l - vd_l])
+
+            if self.matrix_3d and self.matrix_delta:
+                measurement_left.extend([x_l, y_l, delta])
+                e_pixel_left.extend([u_l - ud_l, v_l - vd_l, delta - delta_des])
+                e_norm_left.extend([x_l - xd_l, y_l - yd_l, delta - delta_des])
+
+            elif self.matrix_3d and not self.matrix_delta:
+                measurement_left.extend([x_l, y_l, Z])
+                e_pixel_left.extend([u_l - ud_l, v_l - vd_l, Z - Z_DES])
+                e_norm_left.extend([x_l - xd_l, y_l - yd_l, Z - Z_DES])
+
+            elif not self.matrix_3d and self.matrix_delta:
+                measurement_left.extend([x_l, y_l])
+                e_pixel_left.extend([u_l - ud_l, v_l - vd_l])
+                e_norm_left.extend([x_l - xd_l, y_l - yd_l])
+
+            elif not self.matrix_3d and not self.matrix_delta:
+                measurement_left.extend([x_l, y_l])
+                e_pixel_left.extend([u_l - ud_l, v_l - vd_l])
+                e_norm_left.extend([x_l - xd_l, y_l - yd_l])
+
+        if not self.matrix_delta:
+            distance = np.asarray(depth, dtype=np.float64).reshape(4, 1)
+            distance_mean = float(np.mean(depth))
+        else:
+            distance = np.asarray(deltas, dtype=np.float64).reshape(4, 1)
+            distance_mean = float(np.mean(deltas))
+
+        e_pixel_left = np.asarray(e_pixel_left).reshape(-1, 1)
+        e_norm_left = np.asarray(e_norm_left).reshape(-1, 1)
+        measurement_left = np.asarray(measurement_left,dtype=np.float64).reshape(-1, 1)    
+
+        e_pixel_img = np.asarray(e_pixel_img).reshape(-1, 1)        
+        self.shared.last_distance = distance.copy()
+
+        return (distance_mean, e_pixel_img, e_pixel_left, e_norm_left, measurement_left)
 
     # =========================================================
     def quaternion_to_rotation(self, q):
@@ -635,7 +722,7 @@ class IBVSRCController(Node):
         self.rc_override_pub.publish(rc_msg)
 
     # =========================================================
-    def publish_error(self, e_pixel, e_norm):
+    def publish_error(self, e_pixel, e_norm, e_img):
         err_px_msg = Float32MultiArray()
         err_px_msg.data = e_pixel.astype(np.float32).ravel().tolist()
         self.err_px_pub.publish(err_px_msg)
@@ -643,6 +730,10 @@ class IBVSRCController(Node):
         err_no_msg = Float32MultiArray()
         err_no_msg.data = e_norm.astype(np.float32).ravel().tolist()
         self.err_no_pub.publish(err_no_msg)
+
+        err_img_msg = Float32MultiArray()
+        err_img_msg.data = e_img.astype(np.float32).ravel().tolist()
+        self.err_img_pub.publish(err_img_msg)
         
     # =========================================================
     def tag_watchdog(self):

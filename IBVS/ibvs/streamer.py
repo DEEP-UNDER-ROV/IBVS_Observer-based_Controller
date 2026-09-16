@@ -446,11 +446,11 @@ class VideoStreamer(Node):
                 try:
                     cv2.putText(stream, f"RC IBVS", (50, y2), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (51,255,153), 2)
                     cv2.putText(stream, f"Surge :{override.channels[4]:+.2f}", (50,y2 + 20), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-                    cv2.putText(stream, f"Sway  :{override.channels[5]:+.2f}", (50,y2 + 20), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-                    cv2.putText(stream, f"Heave :{override.channels[2]:+.2f}", (50,y2 + 20), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-                    cv2.putText(stream, f"Roll  :{override.channels[1]:+.2f}", (50,y2 + 20), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-                    cv2.putText(stream, f"Pitch :{override.channels[0]:+.2f}", (50,y2 + 20), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
-                    cv2.putText(stream, f"Yaw   :{override.channels[3]:+.2f}", (50,y2 + 20), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+                    cv2.putText(stream, f"Sway  :{override.channels[5]:+.2f}", (50,y2 + 40), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+                    cv2.putText(stream, f"Heave :{override.channels[2]:+.2f}", (50,y2 + 60), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+                    cv2.putText(stream, f"Roll  :{override.channels[1]:+.2f}", (50,y2 + 80), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+                    cv2.putText(stream, f"Pitch :{override.channels[0]:+.2f}", (50,y2 + 100), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
+                    cv2.putText(stream, f"Yaw   :{override.channels[3]:+.2f}", (50,y2 + 120), cv2.FONT_HERSHEY_SIMPLEX,  0.5, (51,255,153), 2)
 
                 except IndexError:
                     pass

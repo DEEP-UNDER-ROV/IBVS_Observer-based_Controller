@@ -90,7 +90,7 @@ class UKF_Estimator:
         self.q_v = 1e-6
         self.q_Z = 1e-5
 
-        self.q_vB = 1e-3
+        self.q_vB = 1e-4
         self.q_wB = 1e-3
         self.q_aB = 1e-5
 
