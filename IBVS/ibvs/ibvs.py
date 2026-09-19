@@ -327,6 +327,7 @@ class IBVSRCController(Node):
         self.last_camera_innovation = cam_innovation.copy()
         self.shared.camera_measurement_valid = True
 
+    # =========================================================
     def cb_slam_vel(self, msg):
         slam_vel_flu = np.array([
             msg.twist.linear.x,
@@ -502,6 +503,7 @@ class IBVSRCController(Node):
 
         return (distance_mean, e_pixel_img, e_pixel_left, e_norm_left, measurement_left)
 
+    # =========================================================
     def compute_image_error_norm(self, msg):
         e_pixel_left = []
         e_norm_left = []
