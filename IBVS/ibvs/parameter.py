@@ -7,8 +7,7 @@ R_imu = np.diag([
     1.272148604270818**2,
     0.0011478924062028428**2,
     0.0011478924062028428**2,
-    0.0011478924062028428**2
-])
+    0.0011478924062028428**2])
 
 dead_band = 5
 lambda_gain = 0.6
@@ -103,6 +102,13 @@ QGC_PORT = 5600
 stream_w = 848
 stream_h = 480
 
+class Shared_State:
+    def __init__(self):
+        self.tag_lost = True
+        self.ukf_initialized = False
+        self.last_distance = None
+        self.camera_measurement_valid = False
+
 class IBVS_Geometry:
     def __init__(self, N=4, matrix_3d=True,):
         self.N = N
@@ -169,8 +175,16 @@ class IBVS_Geometry:
 
         return np.array([
             [-1/Z,  0,  x/Z,   x*y,  -(1 + x*x),  y],
-            [0,   -1/Z, y/Z, 1 + y*y,   -x*y,    -x]
-        ])
+            [0,   -1/Z, y/Z, 1 + y*y,   -x*y,    -x]])
+
+    # =========================================================
+    def interaction_matrix_2d_pixel(self, u, v, Z):
+            x = (u - CX) / FX
+            y = (v - CY) / FY
+
+            return np.array([
+                [-FX/Z, 0,      (u - CX)/Z,  (u - CX)*y,     -(FX + FX*x**2),  FX*y],
+                [0,     -FY/Z,  (v - CY)/Z,  FY + FY*y**2,   -(v - CY)*x,     -FY*x]])
 
     # =========================================================
     def interaction_matrix_3d(self, x, y, Z):
@@ -178,30 +192,18 @@ class IBVS_Geometry:
         return np.array([
             [-1/Z,  0,  x/Z,   x*y,  -(1 + x*x),  y],
             [0,   -1/Z, y/Z, 1 + y*y,   -x*y,    -x],
-            [0,     0, -1/Z,   -y,        x,      0]
-        ])
-
+            [0,     0, -1/Z,   -y,        x,      0]])
+    
+    # =========================================================
     def interaction_matrix_3d_pixel(self, u, v, Z):
-            # Convert pixel coordinates back to normalized coordinates for cleaner math
             x = (u - CX) / FX
             y = (v - CY) / FY
 
             return np.array([
                 [-FX/Z, 0,      (u - CX)/Z,  (u - CX)*y,     -(FX + FX*x**2),  FX*y],
                 [0,     -FY/Z,  (v - CY)/Z,  FY + FY*y**2,   -(v - CY)*x,     -FY*x],
-                [0,     0,      -1/Z,        -y,             x,                   0]
-            ])
+                [0,     0,      -1/Z,        -y,             x,                   0]])
 
-    def interaction_matrix_2d_pixel(self, u, v, Z):
-            # Convert pixel coordinates back to normalized coordinates for cleaner math
-            x = (u - CX) / FX
-            y = (v - CY) / FY
-
-            return np.array([
-                [-FX/Z, 0,      (u - CX)/Z,  (u - CX)*y,     -(FX + FX*x**2),  FX*y],
-                [0,     -FY/Z,  (v - CY)/Z,  FY + FY*y**2,   -(v - CY)*x,     -FY*x]
-            ])
-    
     # =========================================================
     def build_interaction_matrix(self, state, depth=None,):
         state = np.asarray(state, dtype=float).flatten()
@@ -210,8 +212,8 @@ class IBVS_Geometry:
         if self.matrix_3d:
             for i in range(self.N):
                 idx = 3 * i
-                u, v, Z = state[idx:idx + 3]
-                rows.append(self.interaction_matrix_3d_pixel(u, v, Z))
+                x, y, Z = state[idx:idx + 3]
+                rows.append(self.interaction_matrix_3d_pixel(x, y, Z))
         else:
             depth = np.asarray(depth, dtype=float).reshape(self.N)
             for i in range(self.N):
@@ -225,19 +227,27 @@ class IBVS_Geometry:
     def interaction_matrix_delta_2d(self, x, y, delta):
         return np.array([
             [-delta/bline,       0,          delta * x/bline,    x*y,   -(1 + x*x),  y],
-            [       0,     -delta/bline,     delta * y/bline,  1 + y*y,    -x*y,    -x]
-        ])
+            [       0,     -delta/bline,     delta * y/bline,  1 + y*y,    -x*y,    -x]])
 
+    # =========================================================
+    def interaction_matrix_delta_2d_pixel(self, u, v, delta):
+            x = (u - CX) / FX
+            y = (v - CY) / FY
+            Z = bline / delta
+
+            return np.array([
+                [-FX/Z, 0,      (u - CX)/Z,  (u - CX)*y,     -(FX + FX*x**2),  FX*y],
+                [0,     -FY/Z,  (v - CY)/Z,  FY + FY*y**2,   -(v - CY)*x,     -FY*x]])   
+    
     # =========================================================
     def interaction_matrix_delta_3d(self, x, y, delta):
         return np.array([
             [-delta/bline,       0,          delta * x/bline,    x*y,   -(1 + x*x),  y],
             [     0,       -delta/bline,     delta * y/bline,  1 + y*y,    -x*y,    -x],
-            [     0,             0,          -delta / bline,     -y,         x,      0]
-        ])
+            [     0,             0,          -delta / bline,     -y,         x,      0]])
 
+    # =========================================================
     def interaction_matrix_delta_3d_pixel(self, u, v, delta):
-            # Convert pixel coordinates back to normalized coordinates for cleaner math
             x = (u - CX) / FX
             y = (v - CY) / FY
             Z = bline / delta
@@ -245,19 +255,8 @@ class IBVS_Geometry:
             return np.array([
                 [-FX/Z, 0,      (u - CX)/Z,  (u - CX)*y,     -(FX + FX*x**2),  FX*y],
                 [0,     -FY/Z,  (v - CY)/Z,  FY + FY*y**2,   -(v - CY)*x,     -FY*x],
-                [0,     0,      -1/Z,        -y,             x,                   0]
-            ])
+                [0,     0,      -1/Z,        -y,             x,                   0]])
 
-    def interaction_matrix_delta_2d_pixel(self, u, v, delta):
-            # Convert pixel coordinates back to normalized coordinates for cleaner math
-            x = (u - CX) / FX
-            y = (v - CY) / FY
-            Z = bline / delta
-
-            return np.array([
-                [-FX/Z, 0,      (u - CX)/Z,  (u - CX)*y,     -(FX + FX*x**2),  FX*y],
-                [0,     -FY/Z,  (v - CY)/Z,  FY + FY*y**2,   -(v - CY)*x,     -FY*x]
-            ])    
     # =========================================================
     def build_interaction_matrix_delta(self, state, deltas=None):
         state = np.asarray(state, dtype=float).flatten()
@@ -266,14 +265,14 @@ class IBVS_Geometry:
         if self.matrix_3d:
             for i in range(self.N):
                 idx = 3 * i
-                u, v, deltas = state[idx:idx + 3]
-                rows.append(self.interaction_matrix_delta_3d(u, v, deltas))
+                x, y, deltas = state[idx:idx + 3]
+                rows.append(self.interaction_matrix_delta_3d_pixel(x, y, deltas))
         else:
             deltas = np.asarray(deltas, dtype=float).reshape(self.N)
             for i in range(self.N):
                 idx = 2 * i
                 x, y = state[idx:idx + 2]
-                rows.append(self.interaction_matrix_delta_2d(x, y, deltas[i]))
+                rows.append(self.interaction_matrix_delta_2d_pixel(x, y, deltas[i]))
 
         return np.vstack(rows)
 
@@ -283,8 +282,20 @@ class IBVS_Geometry:
 
         return np.array([
             [Z_dot / Z2,     0.0,    x_dot / Z - x * Z_dot / Z2, x_dot * y + x * y_dot,     -2.0 * x * x_dot,      y_dot],
-            [    0.0,    Z_dot / Z2, y_dot / Z - y * Z_dot / Z2, 2.0 * y * y_dot,       -(x_dot * y + x * y_dot), -x_dot]
-        ])
+            [    0.0,    Z_dot / Z2, y_dot / Z - y * Z_dot / Z2, 2.0 * y * y_dot,       -(x_dot * y + x * y_dot), -x_dot]])
+
+    # =========================================================
+    def interaction_matrix_2d_dot_pixel(self, u, v, Z, u_dot, v_dot, Z_dot):
+        Z2 = Z * Z   
+
+        x = (u - CX) / FX
+        y = (v - CY) / FY
+        x_dot = u_dot / FX
+        y_dot = v_dot / FY
+
+        return np.array([
+            [FX * (Z_dot / Z2), 0.0,               FX * (x_dot / Z - x * Z_dot / Z2), FX * (x_dot * y + x * y_dot), FX * (-2.0 * x * x_dot),        FX * y_dot],
+            [0.0,               FY * (Z_dot / Z2), FY * (y_dot / Z - y * Z_dot / Z2), FY * (2.0 * y * y_dot),       FY * -(x_dot * y + x * y_dot), FY * -x_dot]])
     
     # =========================================================
     def interaction_matrix_3d_dot(self, x, y, Z, x_dot, y_dot, Z_dot):
@@ -293,8 +304,7 @@ class IBVS_Geometry:
         return np.array([
             [Z_dot / Z2,     0.0,    x_dot / Z - x * Z_dot / Z2, x_dot * y + x * y_dot,     -2.0 * x * x_dot,      y_dot],
             [    0.0,    Z_dot / Z2, y_dot / Z - y * Z_dot / Z2, 2.0 * y * y_dot,       -(x_dot * y + x * y_dot), -x_dot],
-            [    0.0,        0.0,            Z_dot / Z2,              -y_dot,                    x_dot,              0.0]
-        ])
+            [    0.0,        0.0,            Z_dot / Z2,              -y_dot,                    x_dot,              0.0]])
 
     # =========================================================
     def interaction_matrix_3d_dot_pixel(self, u, v, Z, u_dot, v_dot, Z_dot):
@@ -308,22 +318,9 @@ class IBVS_Geometry:
         return np.array([
             [FX * (Z_dot / Z2), 0.0,               FX * (x_dot / Z - x * Z_dot / Z2), FX * (x_dot * y + x * y_dot), FX * (-2.0 * x * x_dot),       FX * y_dot],
             [0.0,               FY * (Z_dot / Z2), FY * (y_dot / Z - y * Z_dot / Z2), FY * (2.0 * y * y_dot),       FY * -(x_dot * y + x * y_dot), FY * -x_dot],
-            [0.0,               0.0,               Z_dot / Z2,                        -y_dot,                       x_dot,                         0.0       ]
-        ])
+            [0.0,               0.0,               Z_dot / Z2,                        -y_dot,                       x_dot,                         0.0       ]])
 
-    # =========================================================
-    def interaction_matrix_2d_dot_pixel(self, u, v, Z, u_dot, v_dot, Z_dot):
-        Z2 = Z * Z   
 
-        x = (u - CX) / FX
-        y = (v - CY) / FY
-        x_dot = u_dot / FX
-        y_dot = v_dot / FY
-
-        return np.array([
-            [FX * (Z_dot / Z2), 0.0,               FX * (x_dot / Z - x * Z_dot / Z2), FX * (x_dot * y + x * y_dot), FX * (-2.0 * x * x_dot),        FX * y_dot],
-            [0.0,               FY * (Z_dot / Z2), FY * (y_dot / Z - y * Z_dot / Z2), FY * (2.0 * y * y_dot),       FY * -(x_dot * y + x * y_dot), FY * -x_dot]
-        ])
         
     # =========================================================
     def interaction_matrix_delta_2d_dot(self, x, y, delta, x_dot, y_dot, delta_dot):
@@ -331,8 +328,20 @@ class IBVS_Geometry:
 
         return np.array([
             [-delta_dot / b,     0.0,        (delta_dot * x + delta * x_dot) / b, x_dot * y + x * y_dot,     -2.0 * x * x_dot,      y_dot],
-            [      0.0,      -delta_dot / b, (delta_dot * y + delta * y_dot) / b,    2.0 * y * y_dot,    -(x_dot * y + x * y_dot), -x_dot]
-        ])
+            [      0.0,      -delta_dot / b, (delta_dot * y + delta * y_dot) / b,    2.0 * y * y_dot,    -(x_dot * y + x * y_dot), -x_dot]])
+
+    # =========================================================
+    def interaction_matrix_delta_2d_dot_pixel(self, u, v, delta, u_dot, v_dot, delta_dot):
+        b = bline
+        
+        x = (u - CX) / FX
+        y = (v - CY) / FY
+        x_dot = u_dot / FX
+        y_dot = v_dot / FY
+
+        return np.array([
+            [FX * (-delta_dot / b), 0.0,                   FX * ((delta_dot * x + delta * x_dot) / b), FX * (x_dot * y + x * y_dot), FX * (-2.0 * x * x_dot),       FX * y_dot ],
+            [0.0,                   FY * (-delta_dot / b), FY * ((delta_dot * y + delta * y_dot) / b), FY * (2.0 * y * y_dot),       FY * -(x_dot * y + x * y_dot), FY * -x_dot]])
     
     # =========================================================
     def interaction_matrix_delta_3d_dot(self, x, y, delta, x_dot, y_dot, delta_dot):
@@ -341,8 +350,7 @@ class IBVS_Geometry:
         return np.array([
             [-delta_dot / b,     0.0,        (delta_dot * x + delta * x_dot) / b, x_dot * y + x * y_dot,     -2.0 * x * x_dot,      y_dot],
             [      0.0,      -delta_dot / b, (delta_dot * y + delta * y_dot) / b,    2.0 * y * y_dot,    -(x_dot * y + x * y_dot), -x_dot],
-            [      0.0,          0.0,                -delta_dot / b,                     y_dot,                   x_dot,              0.0]
-        ])
+            [      0.0,          0.0,                -delta_dot / b,                     y_dot,                   x_dot,              0.0]])
 
     # =========================================================
     def interaction_matrix_delta_3d_dot_pixel(self, u, v, delta, u_dot, v_dot, delta_dot):
@@ -356,27 +364,4 @@ class IBVS_Geometry:
         return np.array([
             [FX * (-delta_dot / b), 0.0,                   FX * ((delta_dot * x + delta * x_dot) / b), FX * (x_dot * y + x * y_dot), FX * (-2.0 * x * x_dot),       FX * y_dot ],
             [0.0,                   FY * (-delta_dot / b), FY * ((delta_dot * y + delta * y_dot) / b), FY * (2.0 * y * y_dot),       FY * -(x_dot * y + x * y_dot), FY * -x_dot],
-            [0.0,                   0.0,                   -delta_dot / b,                             y_dot,                        x_dot,                         0.0        ]
-        ])
-
-    # =========================================================
-    def interaction_matrix_delta_2d_dot_pixel(self, u, v, delta, u_dot, v_dot, delta_dot):
-        b = bline
-        
-        x = (u - CX) / FX
-        y = (v - CY) / FY
-        x_dot = u_dot / FX
-        y_dot = v_dot / FY
-
-        return np.array([
-            [FX * (-delta_dot / b), 0.0,                   FX * ((delta_dot * x + delta * x_dot) / b), FX * (x_dot * y + x * y_dot), FX * (-2.0 * x * x_dot),       FX * y_dot ],
-            [0.0,                   FY * (-delta_dot / b), FY * ((delta_dot * y + delta * y_dot) / b), FY * (2.0 * y * y_dot),       FY * -(x_dot * y + x * y_dot), FY * -x_dot]
-        ])
-
-    
-class Shared_State:
-    def __init__(self):
-        self.tag_lost = True
-        self.ukf_initialized = False
-        self.last_distance = None
-        self.camera_measurement_valid = False
+            [0.0,                   0.0,                   -delta_dot / b,                             y_dot,                        x_dot,                         0.0        ]])
