@@ -26,24 +26,25 @@ class IBVSRCController(Node):
         imu_qos = QoSProfile(reliability=ReliabilityPolicy.BEST_EFFORT, durability=DurabilityPolicy.VOLATILE, history=HistoryPolicy.KEEP_LAST, depth=25)
         
         # ---------------- Subscribers ----------------
-        self.sub_corners = self.create_subscription(PolygonStamped, "/apriltag/corners", self.cb_corners, qos_profile_sensor_data)
-        self.sub_detection = self.create_subscription(AprilTagDetectionArray, "/detection1", self.cb_detection_left, 10)
-        self.fcu_att_sub = self.create_subscription(Imu, '/mavros/imu/data', self.cb_fcu_att, qos_profile_sensor_data)
-        self.fcu_imu_sub = self.create_subscription(Imu, '/mavros/imu/data_raw', self.cb_fcu_imu, imu_qos)
-        # self.camera_imu_sub = self.create_subscription(Imu, '/camera/camera/imu', self.cb_camera_imu, imu_qos)
+        self.sub_corners    = self.create_subscription(PolygonStamped, "/apriltag/corners", self.cb_corners, qos_profile_sensor_data)
+        self.sub_detection  = self.create_subscription(AprilTagDetectionArray, "/detection1", self.cb_detection_left, qos_profile_sensor_data)
+        self.fcu_att_sub    = self.create_subscription(Imu, '/mavros/imu/data', self.cb_fcu_att, qos_profile_sensor_data)
+        self.camera_imu_sub = self.create_subscription(Imu, '/camera/imu', self.cb_camera_imu, imu_qos)
+        self.fcu_imu_sub    = self.create_subscription(Imu, '/mavros/imu/data_raw', self.cb_fcu_imu, imu_qos)
+        self.slam_vel_sub   = self.create_subscription(TwistStamped, "/orb_slam3/velocity", self.cb_slam_vel, qos_profile_sensor_data)
 
         # ---------------- Publishers ----------------
         self.rc_override_pub = self.create_publisher(OverrideRCIn, "/mavros/rc/override", 10)
-        self.pwm_pub = self.create_publisher(Int16MultiArray, "/ibvs/pwm_debug", 10)
 
-        self.vel_body_pub = self.create_publisher(TwistStamped, "/ibvs/vel_body", 10)
-        self.nu_B_hat_pub = self.create_publisher(TwistStamped, "/ibvs/nu_B_hat", 10)
-        self.pos_hat_pub = self.create_publisher(PointStamped, "/ibvs/pos_hat", 10)
-        self.torque_pub = self.create_publisher(WrenchStamped, "/ibvs/torque", 10)
+        self.slam_vel_pub = self.create_publisher(TwistStamped, "/slam/velocity", 30)
+        self.nu_B_hat_pub = self.create_publisher(TwistStamped, "/ibvs/nu_B_hat", 30)
+        self.pos_hat_pub  = self.create_publisher(PointStamped, "/ibvs/pos_hat", 30)
+        self.torque_pub   = self.create_publisher(WrenchStamped, "/ibvs/torque", 30)
 
-        self.ukf_data_pub = self.create_publisher(Float32MultiArray, "/ibvs/ukf/data", 10)
-        self.err_px_pub = self.create_publisher(Float32MultiArray, "/ibvs/error/px", 10)
-        self.err_no_pub = self.create_publisher(Float32MultiArray, "/ibvs/error/no", 10)
+        self.ukf_data_pub = self.create_publisher(Float32MultiArray, "/ibvs/ukf/data", 30)
+        self.err_px_pub   = self.create_publisher(Float32MultiArray, "/ibvs/error/px", 30)
+        self.err_no_pub   = self.create_publisher(Float32MultiArray, "/ibvs/error/no", 30)
+        self.err_img_pub  = self.create_publisher(Float32MultiArray, "/ibvs/error/img", 30)
 
         self.declare_state()
         self.current_pwm = [1500] * 18
@@ -64,13 +65,14 @@ class IBVSRCController(Node):
         self.n_dim = 3 * self.N if self.matrix_3d else 2 * self.N
         self.n_cam = self.n_dim
 
-        self.ukf_state = self.n_cam + 21
+        self.ukf_state = self.n_cam + 31
 
-        self.tau_ukf = np.zeros((6,1))
+        self.pN_hat   = np.zeros((3,1))
         self.nu_B_hat = np.zeros((6,1))
         self.nu_C_hat = np.zeros((6,1))
-        self.b_a_hat = np.zeros((3,1))
-        self.b_g_hat = np.zeros((3,1))
+        self.tau_ukf  = np.zeros((6,1))
+        self.b_a_hat  = np.zeros((3,1))
+        self.b_g_hat  = np.zeros((3,1))
 
         self.shared = Shared_State()
         self.geometry = IBVS_Geometry(N=self.N, matrix_3d=self.matrix_3d,)           
@@ -90,69 +92,64 @@ class IBVSRCController(Node):
             shared=self.shared, 
             N=self.N,
             matrix_3d=self.matrix_3d,
-            use_dls=self.dls_matrix, 
+            use_dls=self.control_dls, 
             matrix_delta=self.matrix_delta,)
 
     def stamp_to_sec(self, stamp):
         return (float(stamp.sec) + float(stamp.nanosec) * 1e-9)
 
+    def get_node_time_sec(self):
+        return self.get_clock().now().nanoseconds * 1e-9
+
     def declare_state(self):
         # ---------------------- System Flags ----------------------
-        self.matrix_3d = True
-        self.matrix_delta = False
-        self.dls_matrix = True
-        self.stereo_cam = False
-        self.ukf_fossen = False
+        self.declare_parameter('matrix_3d', True)
+        self.declare_parameter('matrix_delta', False)
+        self.declare_parameter('control_dls', True)
+        self.declare_parameter('stereo_cam', False)
+        self.declare_parameter('ukf_fossen', False)
+
+        self.matrix_3d    = self.get_parameter('matrix_3d').value
+        self.matrix_delta = self.get_parameter('matrix_delta').value
+        self.control_dls  = self.get_parameter('control_dls').value
+        self.stereo_cam   = self.get_parameter('stereo_cam').value
+        self.ukf_fossen   = self.get_parameter('ukf_fossen').value
 
         self.use_camera_ukf = True
         self.tag_was_initialized = False
         self.reset_on_reacquire = False
-
-        # --------------- Perception & Tracking State ---------------
-        self.depth_img = None
-        self.detected_uv_left = None
         
-        # Timestamps
+        # ------------------------ Timestamps -----------------------
         self.last_tag_time = None
-        self.last_imu_time = None
+        self.last_ukf_time = None
+        self.last_fcu_imu_time = None
+        self.last_cam_imu_time = None
+        self.attitude_time = None
+        self.q_fcu_latest = None
+        self.q_fcu_latest_time = None
         self.last_camera_time = None
-        self.last_control_time = None
-        self.last_estimator_dt = None
         self.control_dt = None
 
-        self.attitude_time = None
-
-        # --------------------- Camera IMU Data ---------------------
-        self.acc_camera = None
-        self.acc_camera_B = None
-        self.gyro_camera = None
-        self.acc_camera_stamp = None
-        self.gyro_camera_stamp = None
-
-        # ----------------------- FCU IMU Data -----------------------
-        self.acc_fcu = None
-        self.acc_fcu_B = None
-        self.gyro_fcu = None
-        self.acc_fcu_stamp = None
-        self.gyro_fcu_stamp = None
-
         # -------------------------- Timers --------------------------
-        self.camera_imu_timeshift = 0.00702
-        self.TAG_TIMEOUT = 0.2  # seconds
+        self.camera_imu_fcu_timeshift = 0.0070266278004497695
+        self.camera_imu_cam_timeshift = -0.0011277133958297952
+        self.TAG_TIMEOUT = 0.5  # seconds
         self.create_timer(0.1, self.tag_watchdog)
         self.create_timer(1.0/25.0, self.publish_rc)
-        # self.create_timer(1.0 / 100.0, self.cb_control)
 
         # ------------------------- Variables ------------------------
+        self.detected_uv_left = None
         self.latest_distance_mean = None
         self.e_norm_left = None
         self.e_pixel_left = None
-        self.last_imu_innovation = None
         self.last_camera_innovation = None
 
-        self.R_NB_latest = np.eye(3)
-
-        self.get_logger().info(f"IBVS Control {'3D Matrix' if self.matrix_3d else '2D Matrix'} with feature {'Depth' if not self.matrix_delta else 'Delta'}")
+        self.get_logger().info(
+            f"IBVS {'3D' if self.matrix_3d else '2D'} matrix framework "
+            f"with {'delta' if self.matrix_delta else 'depth'} variable. "
+            f"Control using {'DLS' if self.control_dls else 'Non-DLS'} "
+            f"of {'Stereo' if self.stereo_cam else 'non-stereo'} cam "
+            f"with UKF using {'Fossen' if self.ukf_fossen else 'IMU'} model.")
 
     # =========================================================
     def reset_state(self):
@@ -167,18 +164,20 @@ class IBVSRCController(Node):
 
     # =========================================================
     def update_estimator(self):
-        self.vB_hat = self.estimator.ukf_x[self.estimator.idx_vB].copy()
-        self.wB_hat = self.estimator.ukf_x[self.estimator.idx_wB].copy()
-        self.bo_hat = self.estimator.ukf_x[self.estimator.idx_bo].copy()
-        self.bg_hat = self.estimator.ukf_x[self.estimator.idx_bg].copy()
-        self.aB_hat = self.estimator.ukf_x[self.estimator.idx_aB].copy()
-        self.ba_hat = self.estimator.ukf_x[self.estimator.idx_ba].copy()
-        self.pN_hat = self.estimator.ukf_x[self.estimator.idx_pN].copy()
+        self.s_hat    = self.estimator.ukf_x[self.estimator.idx_s].copy()
+        self.qN_hat   = self.estimator.ukf_x[self.estimator.idx_qN].copy()
+        self.pN_hat   = self.estimator.ukf_x[self.estimator.idx_pN].copy()
+        self.vB_hat   = self.estimator.ukf_x[self.estimator.idx_vB].copy()
+        self.wB_hat   = self.estimator.ukf_x[self.estimator.idx_wB].copy()
+        self.bo_hat   = self.estimator.ukf_x[self.estimator.idx_bo].copy()
+        self.bg_F_hat = self.estimator.ukf_x[self.estimator.idx_bg_F].copy()
+        self.aB_hat   = self.estimator.ukf_x[self.estimator.idx_aB].copy()
+        self.ba_F_hat = self.estimator.ukf_x[self.estimator.idx_ba_F].copy()
+        self.bg_C_hat = self.estimator.ukf_x[self.estimator.idx_bg_C].copy()
+        self.ba_C_hat = self.estimator.ukf_x[self.estimator.idx_ba_C].copy()
         
         self.nu_B_hat = np.concatenate([self.vB_hat, self.wB_hat]).reshape(6, 1)
-
         self.nu_C_hat = self.geometry.T_bc_0 @ self.nu_B_hat
-        self.s_hat = self.estimator.ukf_x[self.estimator.idx_s].copy()
 
     # =========================================================
     def cb_control(self, control_dt):
@@ -212,45 +211,27 @@ class IBVSRCController(Node):
         
         self.log_debug(tau, self.nu_B_hat, pwm)
 
-    # =========================================================
-    def cb_fcu_att(self, msg):
-        self.R_NB_latest = self.quaternion_to_rotation(msg.orientation)
-        self.attitude_time = self.stamp_to_sec(msg.header.stamp)
+    # ========================================================= 
+    def predict_to_time(self, t_msg):
+        if self.last_ukf_time is None:
+            self.last_ukf_time = t_msg
+            self.current_sigma_pred = self.estimator.generate_sigma_points(self.estimator.ukf_x, self.estimator.ukf_P)
+            return True
 
-    # =========================================================
-    def cb_fcu_imu(self, msg):
-        t = self.stamp_to_sec(msg.header.stamp)
+        dt = t_msg - self.last_ukf_time
+        if dt < -0.05:
+            self.get_logger().warn(f"Out-of-order measurement: {dt:.6f} s")
+            return False
 
-        if self.last_imu_time is None:
-            self.last_imu_time = t
-            return
+        if dt <= 1e-4:
+            self.current_sigma_pred = self.estimator.generate_sigma_points(self.estimator.ukf_x, self.estimator.ukf_P)
+            return True
 
-        dt = t - self.last_imu_time
-        self.last_imu_time = t
-
-        if self.R_NB_latest is None or self.attitude_time is None:
-            return
-
-        if dt <= 0.0 or dt > 0.1:
-            self.get_logger().warn(f"Invalid IMU dt: {dt:.6f} s")
-            return
-
-        R_NB = self.R_NB_latest.copy()
-
-        accel_flu = np.array([msg.linear_acceleration.x, 
-                              msg.linear_acceleration.y, 
-                              msg.linear_acceleration.z])
-
-        gyro_flu = np.array([msg.angular_velocity.x, 
-                             msg.angular_velocity.y, 
-                             msg.angular_velocity.z])
-
-        accel_B, gyro_B = self.imu_R_to_NED(R_IB, accel_flu, gyro_flu)
-
-        z_imu = np.concatenate([accel_B, gyro_B])
-
-        if not self.shared.ukf_initialized:
-            return
+        if dt > 0.2:
+            self.get_logger().warn(f"Large timestamp gap ({dt:.4f} s); re-syncing UKF clock.")
+            self.last_ukf_time = t_msg
+            self.current_sigma_pred = self.estimator.generate_sigma_points(self.estimator.ukf_x, self.estimator.ukf_P)
+            return True
 
         last_distance = self.shared.last_distance
         if last_distance is None:
@@ -258,79 +239,137 @@ class IBVSRCController(Node):
         else:
             self.prev_valid_distance = last_distance
 
-        tau = self.tau_ukf
-        x_pred, P_pred, sigma_pred = self.estimator.ukf_predict(self.estimator.ukf_x, self.estimator.ukf_P, dt, last_distance, tau, R_NB)
-        self.estimator.ukf_x, self.estimator.ukf_P, imu_innovation, S_imu, K_imu, z_imu_mean = self.estimator.ukf_update_imu_fcu(x_pred, P_pred, sigma_pred, z_imu, R_NB)
-
-        self.last_imu_innovation = imu_innovation.copy()
-        self.update_estimator()
-        self.publish_position(self.pos_hat_pub, "odom", msg.header.stamp, self.pN_hat)
-        self.ukf_logging(source="imu", innovation=imu_innovation, K=K_imu, z=z_imu)
-
-        self.publish_twist(self.nu_B_hat_pub, "nu_B_hat", msg.header.stamp, self.vB_hat, self.wB_hat)
-        self.cb_control(dt)
+        x_pred, P_pred, sigma_pred = self.estimator.ukf_predict(self.estimator.ukf_x, self.estimator.ukf_P, dt, last_distance, self.tau_ukf)
+        self.estimator.ukf_x = x_pred
+        self.estimator.ukf_P = P_pred
+        self.last_ukf_time = t_msg
+        self.current_sigma_pred = sigma_pred
+        return True
 
     # =========================================================
     def cb_camera_imu(self, msg):
-        t = self.stamp_to_sec(msg.header.stamp)
-
-        if self.last_imu_time is None:
-            self.last_imu_time = t
-            R_NB = self.quaternion_to_rotation(msg.orientation)
+        t = self.get_node_time_sec()
+        if not self.shared.ukf_initialized:
             return
+        
+        # if self.last_cam_imu_time is not None:
+        #     dt = t - self.last_cam_imu_time
+        #     if dt <= 0.0 or dt > 0.1:
+        #         self.get_logger().warn(f"Invalid camera IMU dt: {dt:.6f} s")
+        #         return
+        # self.last_cam_imu_time = t
 
-        dt = t - self.last_imu_time
-        self.last_imu_time = t
-
-        if dt <= 0.0 or dt > 0.1:
-            self.get_logger().warn(f"Invalid IMU dt: {dt:.6f} s")
-            return
-
-        R_NB = self.quaternion_to_rotation(msg.orientation)
-
-        accel_ocv = np.array([msg.linear_acceleration.x, 
+        accel_cam = np.array([msg.linear_acceleration.x, 
                               msg.linear_acceleration.y, 
-                              msg.linear_acceleration.z])
+                              msg.linear_acceleration.z], dtype=np.float64)
+        gyro_cam  = np.array([msg.angular_velocity.x, 
+                              msg.angular_velocity.y, 
+                              msg.angular_velocity.z], dtype=np.float64)
 
-        gyro_ocv = np.array([msg.angular_velocity.x, 
-                             msg.angular_velocity.y, 
-                             msg.angular_velocity.z])
+        if not np.isfinite(accel_cam).all() or not np.isfinite(gyro_cam).all():
+            self.get_logger().warn("Invalid camera IMU sample.")
+            return
 
-        accel_B, gyro_B = self.imu_R_to_NED(R_IB, accel_ocv, gyro_ocv)
+        R_BI = T_BI[:3, :3]
+        
+        accel_cam_B, gyro_cam_B = self.imu_R_to_B(R_BI, accel_cam, gyro_cam)
+        z_cam_imu = np.concatenate([accel_cam_B, gyro_cam_B])
 
-        z_imu = np.concatenate([accel_B, gyro_B])
+        if not self.predict_to_time(t):
+            return
+        
+        sigma_cam = self.current_sigma_pred
+        self.estimator.ukf_x, self.estimator.ukf_P, ICam_innovation, S_ICam, K_ICam, ICam_meas_residual = self.estimator.ukf_update_imu_cam(self.estimator.ukf_x, self.estimator.ukf_P, sigma_cam, z_cam_imu)
+
+        self.update_estimator()
+        self.publish_position(self.pos_hat_pub, "odom", msg.header.stamp, self.pN_hat)
+        self.publish_twist(self.nu_B_hat_pub, "nu_B_hat", msg.header.stamp, self.vB_hat, self.wB_hat)
+        self.ukf_logging(source="cam_imu", innovation=ICam_innovation, K=K_ICam, z=z_cam_imu)
+        self.cb_control(t)
+
+    # =========================================================
+    def cb_fcu_imu(self, msg):
+        t = self.get_node_time_sec()
+        if not self.shared.ukf_initialized:
+            return       
+        
+        # if self.last_fcu_imu_time is not None:
+        #     dt = t - self.last_fcu_imu_time
+        #     if dt <= 0.0 or dt > 0.1:
+        #         self.get_logger().warn(f"Invalid FCU IMU dt: {dt:.6f} s")
+        #         return
+        # self.last_fcu_imu_time = t
+
+        accel_fcu = np.array([msg.linear_acceleration.x, 
+                              msg.linear_acceleration.y, 
+                              msg.linear_acceleration.z], dtype=np.float64)
+        gyro_fcu  = np.array([msg.angular_velocity.x, 
+                              msg.angular_velocity.y, 
+                              msg.angular_velocity.z], dtype=np.float64)
+
+        if not np.isfinite(accel_fcu).all() or not np.isfinite(gyro_fcu).all():
+            self.get_logger().warn("Invalid FCU IMU sample.")
+            return
+
+        R_BF = T_BF[:3, :3]
+
+        accel_fcu_B, gyro_fcu_B = self.imu_R_to_B(R_BF, accel_fcu, gyro_fcu)
+        z_fcu_imu = np.concatenate([accel_fcu_B, gyro_fcu_B])
+
+        if not self.predict_to_time(t):
+            return
+
+        sigma_fcu = self.current_sigma_pred
+        self.estimator.ukf_x, self.estimator.ukf_P, fcu_innovation, S_fcu, K_fcu, _ = self.estimator.ukf_update_imu_fcu(self.estimator.ukf_x, self.estimator.ukf_P, sigma_fcu, z_fcu_imu)
+
+        self.update_estimator()
+        self.ukf_logging(source="fcu_imu", innovation=fcu_innovation, K=K_fcu, z=z_fcu_imu)
+
+    # =========================================================
+    def cb_fcu_att(self, msg):
+        t = self.get_node_time_sec()
+
+        q_fcu = np.array([
+            msg.orientation.x,
+            msg.orientation.y,
+            msg.orientation.z,
+            msg.orientation.w
+        ], dtype=np.float64)
+
+        q_fcu = self.estimator._normalize_quaternion(q_fcu)
+
+        if not np.isfinite(q_fcu).all():
+            self.get_logger().warn("Invalid FCU quaternion received; ignoring.")
+            return
+
+        R_EF = self.quaternion_to_rotation(q_fcu)
+        R_BF = T_BF[:3, :3]
+        R_NB = R_NE @ R_EF @ R_BF.T
+
+        q_NB = self.estimator._rotmat_to_quat(R_NB)
+
+        self.R_NB_latest = R_NB
+        self.q_fcu_latest = q_NB
+        self.attitude_time = t
 
         if not self.shared.ukf_initialized:
             return
 
-        last_distance = self.shared.last_distance
-        if last_distance is None:
-            last_distance = getattr(self, 'prev_valid_distance', Z_DES)
-        else:
-            self.prev_valid_distance = last_distance
+        if not self.predict_to_time(t):
+            return
 
-        tau = self.tau_ukf
-        x_pred, P_pred, sigma_pred = self.estimator.ukf_predict(self.estimator.ukf_x, self.estimator.ukf_P, dt, last_distance, tau, R_NB)
-        self.estimator.ukf_x, self.estimator.ukf_P, imu_innovation, S_imu, K_imu, z_imu_mean = self.estimator.ukf_update_imu_fcu(x_pred, P_pred, sigma_pred, z_imu, R_NB)
-
-        self.last_imu_innovation = imu_innovation.copy()
+        sigma_q = self.current_sigma_pred        
+        self.estimator.ukf_x, self.estimator.ukf_P, q_innov, S_q, K_q, _ = self.estimator.ukf_update_attitude_fcu(self.estimator.ukf_x, self.estimator.ukf_P, sigma_q, q_NB)
         self.update_estimator()
-        self.publish_position(self.pos_hat_pub, "odom", msg.header.stamp, self.pN_hat)
-        self.ukf_logging(source="imu", innovation=imu_innovation, K=K_imu, z=z_imu)
-
-        self.publish_twist(self.nu_B_hat_pub, "nu_B_hat", msg.header.stamp, self.vB_hat, self.wB_hat)
-        self.cb_control(dt)
+        self.ukf_logging(source="fcu_q", innovation=q_innov, K=K_q, z=self.q_fcu_latest)
 
     # =========================================================
     def cb_corners(self, msg):
-        if self.detected_uv_left is None:
-            return
-    
-        if len(msg.polygon.points) != self.N:
+        if self.detected_uv_left is None or len(msg.polygon.points) != self.N:
             return
         
         camera_time = self.stamp_to_sec(msg.header.stamp)
-        camera_time_ukf = camera_time - self.camera_imu_timeshift
+        camera_time_ukf = camera_time - self.camera_imu_fcu_timeshift
 
         if self.last_camera_time is None:
             camera_dt = 0.033
@@ -345,17 +384,18 @@ class IBVSRCController(Node):
         self.last_tag_time = self.get_clock().now()
         self.shared.tag_lost = False
 
-        result = self.compute_image_error_stereo(msg)
+        result = self.compute_image_error_pixel(msg)
         if result is None:
             return
 
         distance_mean, e_pixel_img, e_pixel_left, e_norm_left, measurement_left = result
 
         z_cam = measurement_left.flatten()
-        self.publish_error(e_pixel_left, e_norm_left)
+        self.publish_error(e_pixel_left, e_norm_left, e_pixel_img)
 
         if not self.shared.ukf_initialized:
-            self.estimator.initialize_ukf_from_camera(measurement_left)
+            q_N0 = getattr(self, "q_fcu_latest", None)
+            self.estimator.initialize_ukf_from_camera(measurement_left, q_N0)
             self.shared.ukf_initialized = True
             self.tag_was_initialized = True
             self.shared.camera_measurement_valid = True
@@ -365,16 +405,20 @@ class IBVSRCController(Node):
         if tag_reacquired:
             self.get_logger().warn("AprilTag REACQUIRED -> resetting UKF/controller state.")
             self.reset_state()
-            self.estimator.initialize_ukf_from_camera(measurement_left)
+            q_N0 = getattr(self, "q_fcu_latest", None)
+            self.estimator.initialize_ukf_from_camera(measurement_left, q_N0)
             self.shared.ukf_initialized = True
             self.shared.camera_measurement_valid = True
             self.shared.tag_lost = False
             return
 
-        sigma_camera = self.estimator.generate_sigma_points(self.estimator.ukf_x, self.estimator.ukf_P)
+        t = self.get_node_time_sec()
+        if not self.predict_to_time(t):
+            return
+
+        sigma_camera = self.current_sigma_pred
         self.estimator.ukf_x, self.estimator.ukf_P, cam_innovation, S_cam, K_cam, z_cam_mean = self.estimator.ukf_update_camera(self.estimator.ukf_x, self.estimator.ukf_P, sigma_camera, z_cam)
 
-        self.last_camera_innovation = cam_innovation.copy()
         self.update_estimator()
         self.ukf_logging(source="camera", innovation=cam_innovation, K=K_cam, z=z_cam)
 
@@ -384,7 +428,29 @@ class IBVSRCController(Node):
         self.last_camera_innovation = cam_innovation.copy()
         self.shared.camera_measurement_valid = True
 
+    # =========================================================
+    def cb_slam_vel(self, msg):
+        slam_vel_flu = np.array([
+            msg.twist.linear.x,
+            msg.twist.linear.y,
+            msg.twist.linear.z])
 
+        slam_rot_flu = np.array([
+            msg.twist.angular.x,
+            msg.twist.angular.y,
+            msg.twist.angular.z])
+
+        slam_vel_ned = np.array([
+            slam_vel_flu[0],
+            -slam_vel_flu[1],
+            -slam_vel_flu[2]])
+        
+        slam_rot_ned = np.array([
+            slam_rot_flu[0],
+            -slam_rot_flu[1],
+            -slam_rot_flu[2]])
+
+        self.publish_twist(self.slam_vel_pub, "slam_vel", msg.header.stamp, slam_vel_ned, slam_rot_ned)
 
 
 
@@ -447,7 +513,7 @@ class IBVSRCController(Node):
         return np.hstack([accel, gyro])
 
     # =========================================================
-    def imu_R_to_NED(self, R, accel, gyro):
+    def imu_R_to_B(self, R, accel, gyro):
         accel  = np.asarray(accel , dtype=np.float64).reshape(3)
         gyro = np.asarray(gyro, dtype=np.float64).reshape(3)
 
@@ -474,7 +540,7 @@ class IBVSRCController(Node):
         return x, y
     
     # =========================================================
-    def compute_image_error_stereo(self, msg):
+    def compute_image_error_pixel(self, msg):
         e_pixel_left = []
         e_norm_left = []
         measurement_left = []
@@ -537,20 +603,32 @@ class IBVSRCController(Node):
         e_pixel_img = np.asarray(e_pixel_img).reshape(-1, 1)        
         self.shared.last_distance = distance.copy()
 
-        return (distance_mean, e_pixel_img,
-                e_pixel_left, e_norm_left, measurement_left)
+        return (distance_mean, e_pixel_img, e_pixel_left, e_norm_left, measurement_left)
 
     # =========================================================
     def quaternion_to_rotation(self, q):
-        x = q.x
-        y = q.y
-        z = q.z
-        w = q.w
+        if hasattr(q, 'x'):
+            x = q.x
+            y = q.y
+            z = q.z
+            w = q.w
+        else:
+            q = np.asarray(q, dtype=np.float64).reshape(4)
+            x, y, z, w = q
+
+        q = np.array([x, y, z, w], dtype=np.float64)
+
+        n = np.linalg.norm(q)
+        if not np.isfinite(n) or n < 1e-12:
+            raise ValueError("Invalid quaternion.")
+
+        x, y, z, w = q / n
 
         R = np.array([
-            [1 - 2*(y*y + z*z), 2*(x*y - z*w),     2*(x*z + y*w)],
-            [2*(x*y + z*w),   1 - 2*(x*x + z*z),   2*(y*z - x*w)],
-            [2*(x*z - y*w),     2*(y*z + x*w), 1 - 2*(x*x + y*y)]], dtype=np.float64)
+            [1.0 - 2.0*(y*y + z*z), 2.0*(x*y - z*w),       2.0*(x*z + y*w)],
+            [2.0*(x*y + z*w),       1.0 - 2.0*(x*x + z*z), 2.0*(y*z - x*w)],
+            [2.0*(x*z - y*w),       2.0*(y*z + x*w),       1.0 - 2.0*(x*x + y*y)]
+        ], dtype=np.float64)
 
         return R
     
@@ -625,14 +703,8 @@ class IBVSRCController(Node):
         K = np.asarray(K, dtype=np.float64)
         z = np.asarray(z, dtype=np.float64).reshape(-1)
 
-        if source == "imu":
-            source_id = 0.0
-
-        elif source == "camera":
-            source_id = 1.0
-
-        else:
-            source_id = -1.0
+        source_map = {"fcu_imu": 0.0, "cam_imu": 1.0, "camera": 2.0, "fcu_q": 3.0}
+        source_id = source_map.get(source, -1.0)
 
         innovation_norm = np.linalg.norm(innovation)
         gain_norm = np.linalg.norm(K, ord="fro")
@@ -670,23 +742,23 @@ class IBVSRCController(Node):
         if nu_hat is not None:
             nu_hat = np.asarray(nu_hat, dtype=np.float64).reshape(-1)
             self.get_logger().info(
-                f"Surge = {nu_hat[0]:.2f} |"
-                f"Sway = {nu_hat[1]:.2f} |"
-                f"Heave = {nu_hat[2]:.2f} |"
-                f"Roll = {nu_hat[3]:.2f} |"
-                f"Pitch = {nu_hat[4]:.2f} |"
-                f"Yaw = {nu_hat[5]:.2f} |",
+                f"Surge = {nu_hat[0]:.2f} m/s|"
+                f"Sway = {nu_hat[1]:.2f} m/s|"
+                f"Heave = {nu_hat[2]:.2f} m/s|"
+                f"Roll = {nu_hat[3]:.2f} m/s|"
+                f"Pitch = {nu_hat[4]:.2f} m/s|"
+                f"Yaw = {nu_hat[5]:.2f} m/s|",
                 throttle_duration_sec=1.0)
             
         if tau is not None:
             tau = np.asarray(tau, dtype=np.float64).reshape(-1)
             self.get_logger().info(
-                f"Surge = {tau[0]:.2f} |"
-                f"Sway = {tau[1]:.2f} |"
-                f"Heave = {tau[2]:.2f} |"
-                f"Roll = {tau[3]:.2f} |"
-                f"Pitch = {tau[4]:.2f} |"
-                f"Yaw = {tau[5]:.2f} ",
+                f"Surge = {tau[0]:.2f} N|"
+                f"Sway = {tau[1]:.2f} N|"
+                f"Heave = {tau[2]:.2f} N|"
+                f"Roll = {tau[3]:.2f} N|"
+                f"Pitch = {tau[4]:.2f} N|"
+                f"Yaw = {tau[5]:.2f} N",
                 throttle_duration_sec=1.0)
         
         if pwm is not None:
@@ -708,7 +780,7 @@ class IBVSRCController(Node):
         self.rc_override_pub.publish(rc_msg)
 
     # =========================================================
-    def publish_error(self, e_pixel, e_norm):
+    def publish_error(self, e_pixel, e_norm, e_img):
         err_px_msg = Float32MultiArray()
         err_px_msg.data = e_pixel.astype(np.float32).ravel().tolist()
         self.err_px_pub.publish(err_px_msg)
@@ -716,6 +788,10 @@ class IBVSRCController(Node):
         err_no_msg = Float32MultiArray()
         err_no_msg.data = e_norm.astype(np.float32).ravel().tolist()
         self.err_no_pub.publish(err_no_msg)
+
+        err_img_msg = Float32MultiArray()
+        err_img_msg.data = e_img.astype(np.float32).ravel().tolist()
+        self.err_img_pub.publish(err_img_msg)
         
     # =========================================================
     def tag_watchdog(self):

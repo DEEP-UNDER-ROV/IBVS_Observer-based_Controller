@@ -27,7 +27,7 @@ class IBVSRCController(Node):
         
         # ---------------- Subscribers ----------------
         self.sub_corners = self.create_subscription(PolygonStamped, "/apriltag/corners", self.cb_corners, qos_profile_sensor_data)
-        self.sub_detection = self.create_subscription(AprilTagDetectionArray, "/detection1", self.cb_detection_left, 10)
+        self.sub_detection = self.create_subscription(AprilTagDetectionArray, "/detection1", self.cb_detection_left, qos_profile_sensor_data)
         # self.camera_gyro_sub = self.create_subscription(Imu, '/camera/camera/gyro/sample', self.cb_camera_gyro, 200)
         # self.camera_accel_sub = self.create_subscription(Imu, '/camera/camera/accel/sample', self.cb_camera_accel, 100)
         self.fcu_att_sub = self.create_subscription(Imu, '/mavros/imu/data', self.cb_fcu_att, imu_qos)
@@ -127,8 +127,9 @@ class IBVSRCController(Node):
         self.control_dt = None
 
         # -------------------------- Timers --------------------------
-        self.camera_imu_timeshift = 0.00702
-        self.TAG_TIMEOUT = 0.2  # seconds
+        self.camera_imu_fcu_timeshift = 0.0070266278004497695
+        self.camera_imu_cam_timeshift = -0.0011277133958297952
+        self.TAG_TIMEOUT = 0.5  # seconds
         self.create_timer(0.1, self.tag_watchdog)
         self.create_timer(1.0/25.0, self.publish_rc)
 
@@ -204,16 +205,18 @@ class IBVSRCController(Node):
         pwm = self.controller.compute_force_pwm(tau)
         self.current_pwm = pwm
         
-        self.log_debug(tau, self.nu_B_hat, pwm)
+        # self.log_debug(tau, self.nu_B_hat, pwm)
 
     # =========================================================
     def cb_fcu_att(self, msg):
-        self.R_NB_latest = self.quaternion_to_rotation(msg.orientation)
+        R_EF = self.quaternion_to_rotation(msg.orientation)        
+        R_BF = T_BF[:3, :3]
+
+        self.R_NB_latest = R_NE @ R_EF @ R_BF.T 
         self.attitude_time = self.stamp_to_sec(msg.header.stamp)
 
     # =========================================================
     def cb_fcu_imu(self, msg):
-        q = msg.orientation
         t = self.stamp_to_sec(msg.header.stamp)
 
         if self.last_imu_time is None:
@@ -231,6 +234,7 @@ class IBVSRCController(Node):
             return
 
         R_NB = self.R_NB_latest.copy()
+        R_BF = T_BF[:3, :3]
 
         accel_flu = np.array([msg.linear_acceleration.x, 
                               msg.linear_acceleration.y, 
@@ -240,7 +244,7 @@ class IBVSRCController(Node):
                              msg.angular_velocity.y, 
                              msg.angular_velocity.z])
 
-        accel_B, gyro_B = self.imu_R_to_NED(R_IB, accel_flu, gyro_flu)
+        accel_B, gyro_B = self.imu_R_to_B(R_BF, accel_flu, gyro_flu)
 
         z_imu = np.concatenate([accel_B, gyro_B])
 
@@ -259,7 +263,7 @@ class IBVSRCController(Node):
 
         self.last_imu_innovation = imu_innovation.copy()
         self.update_estimator()
-        self.ukf_logging(source="imu", innovation=imu_innovation, K=K_imu, z=z_imu)
+        # self.ukf_logging(source="imu", innovation=imu_innovation, K=K_imu, z=z_imu)
 
         self.publish_twist(self.nu_B_hat_pub, "nu_B_hat", msg.header.stamp, self.vB_hat, self.wB_hat)
         self.cb_control(dt)
@@ -273,7 +277,7 @@ class IBVSRCController(Node):
             return
         
         camera_time = self.stamp_to_sec(msg.header.stamp)
-        camera_time_ukf = camera_time - self.camera_imu_timeshift
+        camera_time_ukf = camera_time - self.camera_imu_fcu_timeshift
 
         if self.last_camera_time is None:
             camera_dt = 0.033
@@ -319,7 +323,7 @@ class IBVSRCController(Node):
 
         self.last_camera_innovation = cam_innovation.copy()
         self.update_estimator()
-        self.ukf_logging(source="camera", innovation=cam_innovation, K=K_cam, z=z_cam)
+        # self.ukf_logging(source="camera", innovation=cam_innovation, K=K_cam, z=z_cam)
 
         self.latest_distance_mean = distance_mean
         self.e_norm_left = e_norm_left.copy()
@@ -411,7 +415,7 @@ class IBVSRCController(Node):
         return np.hstack([accel, gyro])
 
     # =========================================================
-    def imu_R_to_NED(self, R, accel, gyro):
+    def imu_R_to_B(self, R, accel, gyro):
         accel  = np.asarray(accel , dtype=np.float64).reshape(3)
         gyro = np.asarray(gyro, dtype=np.float64).reshape(3)
 
@@ -603,6 +607,32 @@ class IBVSRCController(Node):
 
         return roll, pitch, yaw
 
+    def debug_quaternion(self, R_NB, accel, gyro):
+        if not hasattr(self, '_debug_counter'): self._debug_counter = 0
+        self._debug_counter += 1
+
+        if self._debug_counter % 100 == 0:
+            g = 9.80665
+            f_body_pred_ENU = R_NB.T @ np.array([0.0, 0.0, g])
+            err_ENU = np.linalg.norm(accel - f_body_pred_ENU)
+
+            f_body_pred_NED = R_NB.T @ np.array([0.0, 0.0, -g])
+            
+            accel_B, _ = self.imu_R_to_B(T_BF[:3, :3], accel, gyro)
+            err_NED = np.linalg.norm(accel_B - f_body_pred_NED)
+
+            pitch_deg = np.degrees(np.arcsin(-np.clip(R_NB[2, 0], -1.0, 1.0)))
+            roll_deg = np.degrees(np.arctan2(R_NB[2, 1], R_NB[2, 2]))
+
+            self.get_logger().info(
+                f"\n--- [IMU FRAME DEBUG] ---\n"
+                f"Raw Accel FLU : {accel.round(3)}\n"
+                f"Euler Angles  : Roll={roll_deg:.1f}°, Pitch={pitch_deg:.1f}°\n"
+                f"ENU Error     : {err_ENU:.4f} (Pred: {f_body_pred_ENU.round(3)})\n"
+                f"NED Error     : {err_NED:.4f} (Pred: {f_body_pred_NED.round(3)})\n"
+                f"-------------------------"
+            )
+
     # =========================================================
     def publish_twist(self, pub, frame, stamp, linear, angular):
         msg = TwistStamped()
@@ -686,23 +716,23 @@ class IBVSRCController(Node):
         if nu_hat is not None:
             nu_hat = np.asarray(nu_hat, dtype=np.float64).reshape(-1)
             self.get_logger().info(
-                f"Surge = {nu_hat[0]:.2f} |"
-                f"Sway = {nu_hat[1]:.2f} |"
-                f"Heave = {nu_hat[2]:.2f} |"
-                f"Roll = {nu_hat[3]:.2f} |"
-                f"Pitch = {nu_hat[4]:.2f} |"
-                f"Yaw = {nu_hat[5]:.2f} |",
+                f"Surge = {nu_hat[0]:.2f} m/s|"
+                f"Sway = {nu_hat[1]:.2f} m/s|"
+                f"Heave = {nu_hat[2]:.2f} m/s|"
+                f"Roll = {nu_hat[3]:.2f} m/s|"
+                f"Pitch = {nu_hat[4]:.2f} m/s|"
+                f"Yaw = {nu_hat[5]:.2f} m/s|",
                 throttle_duration_sec=1.0)
             
         if tau is not None:
             tau = np.asarray(tau, dtype=np.float64).reshape(-1)
             self.get_logger().info(
-                f"Surge = {tau[0]:.2f} |"
-                f"Sway = {tau[1]:.2f} |"
-                f"Heave = {tau[2]:.2f} |"
-                f"Roll = {tau[3]:.2f} |"
-                f"Pitch = {tau[4]:.2f} |"
-                f"Yaw = {tau[5]:.2f} ",
+                f"Surge = {tau[0]:.2f} N|"
+                f"Sway = {tau[1]:.2f} N|"
+                f"Heave = {tau[2]:.2f} N|"
+                f"Roll = {tau[3]:.2f} N|"
+                f"Pitch = {tau[4]:.2f} N|"
+                f"Yaw = {tau[5]:.2f} N",
                 throttle_duration_sec=1.0)
         
         if pwm is not None:

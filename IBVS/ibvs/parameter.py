@@ -61,30 +61,59 @@ P_IC_1 = np.array([
 # MavROS X Front | Y Left  | Z Up
 # U-ROVs X Front | Y Right | Z Down
 
-# Camera (OpenCV) -> IMU (FLU)
-R_CLI = np.array([
-    [ 0.02514123, -0.08710579,  0.99588177],
-    [-0.99910152,  0.03181017,  0.02800482],
-    [-0.03411855, -0.99569106, -0.08622778]], dtype=float)
+'B : Body NED'
+'F : FCU IMU FLU'
+'C : Camera OpenCV'
+'I : Camera IMU FLU'
+'N : Nav Frame NED'
 
-R_CRI = np.array([
-    [ 0.02840296, -0.08770552,  0.99574144],
-    [-0.9990102,   0.03162389,  0.03128165],
-    [-0.03423279, -0.99564435, -0.08672049]], dtype=float)
+# -------------- Transformation FCU_IMU to Camera T_{C<-F} --------------
+T_CF_left = np.array([
+    [ 0.02514123, -0.99910152, -0.03411855,  0.06240867],
+    [-0.08710579,  0.03181017, -0.99569106,  0.00550117],
+    [ 0.99588177,  0.02800482, -0.08622778, -0.19851982],
+    [ 0.0,         0.0,         0.0,         1.0       ]], dtype=float)
 
-# IMU (FLU) -> Body (NED)
-R_IB = np.array([
+T_CF_right = np.array([
+    [ 0.02840296, -0.9990102,  -0.03423279, -0.03461699],
+    [-0.08770552,  0.03162389, -0.99564435,  0.00537951],
+    [ 0.99574144,  0.03128165, -0.08672049, -0.20020964],
+    [ 0.0,         0.0,         0.0,         1.0       ]], dtype=float)
+
+
+# -------------- Transformation IMU Camera to Camera T_{I<-C} --------------
+T_CI_left = np.array([
+    [ 0.99992266, -0.00464711, -0.01153608,  0.02432047],
+    [ 0.00466818,  0.99998748,  0.00180012, -0.0191817 ],
+    [ 0.01152757, -0.00185383,  0.99993184, -0.02754048],
+    [ 0.0,         0.0,         0.0,         1.0       ]], dtype=float)
+
+T_CI_right = np.array([
+    [ 0.99995414, -0.00482059, -0.00827584, -0.07214334],
+    [ 0.00483061,  0.99998762,  0.0011917,  -0.01941351],
+    [ 0.00826999, -0.00123162,  0.99996504, -0.02912202],
+    [ 0.0,         0.0,         0.0,         1.0       ]], dtype=float)
+
+
+# -------------- Transformation FLU to NED T_{B<-F} --------------
+T_BF = np.eye(4)
+T_BF[:3, :3] = np.array([
     [1,  0,  0],
     [0, -1,  0],
     [0,  0, -1]], dtype=float)
 
-R_CB = R_IB @ R_CLI
+R_NE = np.array([
+    [0, 1,  0], 
+    [1, 0,  0], 
+    [0, 0, -1]], dtype=np.float64)
 
-R_CLB = R_IB @ R_CLI
-R_CRB = R_IB @ R_CRI
 
-P_BC_0 = R_IB @ P_IC_0
-P_BC_1 = R_IB @ P_IC_1
+# -------------- Frame Transformation  --------------
+T_CB = T_CF_left @ np.linalg.inv(T_BF)
+T_BI = T_BF @ np.linalg.inv(T_CF_left) @ T_CI_left
+
+T_CLB = T_CF_left @ np.linalg.inv(T_BF)
+T_CRB = T_CF_right @ np.linalg.inv(T_BF)
 
 
 # --- Velocity Limits ---
@@ -114,8 +143,8 @@ class IBVS_Geometry:
         self.N = N
         self.matrix_3d = matrix_3d
 
-        self.T_bc_0 = self.transform_matrix(P_BC_0, R_CLB.T)
-        self.T_bc_1 = self.transform_matrix(P_BC_1, R_CRB.T)
+        self.T_bc_0 = self.transform_matrix(T_CLB)
+        self.T_bc_1 = self.transform_matrix(T_CRB)
         self.Minv = np.linalg.inv(M)
 
     # =========================================================
@@ -161,14 +190,19 @@ class IBVS_Geometry:
             [-p[1],p[0],0]
         ])
 
-    # =========================================================
-    def transform_matrix(self, P_BC, R_CB):
-        S = self.skew(P_BC)
-        T_bc = np.block([
-            [R_CB,           -R_CB @ S],
-            [np.zeros((3,3)),     R_CB]])
+# =========================================================
+    def transform_matrix(self, T_bc: np.ndarray) -> np.ndarray:
+        R_CB = T_bc[:3, :3]
+        P_BC = T_bc[:3, 3]
 
-        return T_bc
+        S = self.skew(P_BC)
+        
+        T = np.block([
+            [R_CB,           -R_CB @ S],
+            [np.zeros((3,3)), R_CB]
+        ])
+
+        return T
 
     # =========================================================
     def interaction_matrix_2d(self, x, y, Z):
