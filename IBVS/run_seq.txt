@@ -30,6 +30,6 @@ ros2 bag play your_bag \
   /mavros/imu/data
 
 
-5. Command Deployment
+5. Command Deployment  P.S. untuk Rusdy, makanya klo gatau chat atau tanya sama yang predecessor atau pendahulu yang lebih paham -_-
 watch -n 1 sensors                  # --> Monitor sensor RPi
 ros2 launch ibvs rgb_vis.launch.py  # --> Run RGBcam + visualisation
