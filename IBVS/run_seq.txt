@@ -1,58 +1,25 @@
 1. Cmd RealSense Driver
-ros2 launch rov_vision uw_rs_apriltag_triangulation.launch.xml
-ros2 param set /camera/camera depth_module.emitter_enabled 0
+ros2 launch rov_vision uw_rs_apriltag_triangulation.launch.xml # --> run apriltag detection
+ros2 param set /camera/camera depth_module.emitter_enabled 0   # --> set param laser off
 
-ros2 launch pb_perception rs_cam_launch.py
-
-ros2 launch realsense2_camera rs_launch.py
+ros2 launch realsense2_camera rs_launch.py  # --> run rgb cam
+ros2 launch pb_perception rs_cam_launch.py  # --> run ir cam
 
 
 2. Cmd MAVROS
-ros2 launch mavros apm.launch fcu_url:="serial:///dev/ttyACM0:921600" gcs_url:="udp://@192.168.4.1:14550"
 ros2 launch mavros apm.launch fcu_url:="serial:///dev/ttyACM0:921600" gcs_url:="udp://@192.168.2.1:14550"
 
 
-4. Cmd IBVS Controller
+3. Cmd IBVS Controller
+ros2 launch ibvs mav_cam.launch.py
 ros2 run ibvs visualize
 ros2 run ibvs ibvs
 
-ros2 run ibvs visualize --ros-args -p compressed:=false
 
+4. Cmd ROSBag Recording
+ros2 launch ibvs record_full.launch.py  # --> Full record for data analyze
+ros2 launch ibvs record_min.launch.py   # --> Min record for debug
 
-
-5. Cmd Stream GStreamer
-ros2 run ibvs stream
-ros2 run ibvs stream --ros-args -p image_topic:="/camera/camera/color/image_raw"
-ros2 run ibvs stream --ros-args -p image_topic:="/camera/infra1/image_rect_raw"
-ros2 run ibvs stream --ros-args -p image_topic:="/corrected/left/image_raw"
-
-
-6. Cmd Reset FCU
-ros2 service call /mavros/cmd/command mavros_msgs/srv/CommandLong "{command: 246, param1: 1.0, param2: 0.0, param3: 0.0, param4: 0.0, param5: 0.0, param6: 0.0, param7: 0.0}"
-
-
-7. Cmd ROSBag Recording
-ros2 bag record --max-cache-size 100000000 --include-hidden-topics \
-  /apriltag/corners \
-  /detection1 \
-  /detection2 \
-  /ibvs/error/px \
-  /ibvs/error/no \
-  /ibvs/ukf/data \
-  /ibvs/nu_B_hat \
-  /ibvs/torque \
-  /mavros/imu/data \
-  /mavros/rc/override \
-  /corrected/left/image_raw \
-  /camera/overlay/image_raw/compressed
-
-
-ros2 bag record -s mcap -o bag_telemetry \
-  ~/rov_ws/src/IBVS qos_overrides.yaml \
-  /mavros/imu/data /mavros/rc/override /ibvs/ukf/data /ibvs/nu_B_hat /ibvs/torque /ibvs/error/px /ibvs/error/no /apriltag/corners /detection1 /detection2
-
-ros2 bag record -s mcap -o bag_camera \
-  /camera/overlay/image_raw/compressed /corrected/left/image_raw /corrected/right/image_raw
 
 
 ros2 bag play your_bag \
@@ -63,5 +30,6 @@ ros2 bag play your_bag \
   /mavros/imu/data
 
 
-8. Watch RPi Temp
-watch -n 1 sensors
+5. Command Deployment
+watch -n 1 sensors                  # --> Monitor sensor RPi
+ros2 launch ibvs rgb_vis.launch.py  # --> Run RGBcam + visualisation

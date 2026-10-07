@@ -20,6 +20,6 @@ def generate_launch_description():
 
     return LaunchDescription([
         vision_launch,
-        disable_emitter,
+        # disable_emitter,
         mavros_launch
     ])
