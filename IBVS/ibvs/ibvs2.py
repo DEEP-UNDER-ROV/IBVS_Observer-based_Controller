@@ -190,7 +190,7 @@ class IBVSRCController(Node):
         self.control_dt = control_dt
 
         distance_mean = self.latest_distance_mean
-        tau = self.controller.compute_control_tau_classic( 
+        tau, tau_P, tau_D, tau_L, tau_G = self.controller.compute_control_tau_classic( 
                 feature_hat=self.s_hat,
                 last_distance = self.shared.last_distance,
 
@@ -205,6 +205,11 @@ class IBVSRCController(Node):
 
         self.tau_ukf = np.asarray(tau, dtype=float).reshape(6,1)
         self.publish_torque(self.torque_pub, "body", self.get_clock().now().to_msg(), tau)
+        
+        self.get_logger().info(f"tau_P = {np.array2string(tau_P, precision=2)}", throttle_duration_sec=1.0)
+        self.get_logger().info(f"tau_D = {np.array2string(tau_D, precision=2)}", throttle_duration_sec=1.0)
+        self.get_logger().info(f"tau_L = {np.array2string(tau_L, precision=2)}", throttle_duration_sec=1.0)
+        self.get_logger().info(f"tau_G = {np.array2string(tau_G, precision=2)}", throttle_duration_sec=1.0)
 
         pwm = self.controller.compute_force_pwm(tau)
         self.current_pwm = pwm
@@ -422,6 +427,8 @@ class IBVSRCController(Node):
         self.update_estimator()
         self.ukf_logging(source="camera", innovation=cam_innovation, K=K_cam, z=z_cam)
 
+        self.get_logger().info(f"pixel error= {np.array2string(e_pixel_left, precision=2)}", throttle_duration_sec=1.0)
+
         self.latest_distance_mean = distance_mean
         self.e_norm_left = e_norm_left.copy()
         self.e_pixel_left = e_pixel_left.copy()
@@ -430,6 +437,9 @@ class IBVSRCController(Node):
 
     # =========================================================
     def cb_slam_vel(self, msg):
+        if msg is None:
+            return
+        
         slam_vel_flu = np.array([
             msg.twist.linear.x,
             msg.twist.linear.y,

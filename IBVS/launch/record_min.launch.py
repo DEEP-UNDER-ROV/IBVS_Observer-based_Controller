@@ -23,9 +23,7 @@ def generate_launch_description():
             '/detection2',
             '/mavros/imu/data',
             '/mavros/imu/data_raw',
-            '/camera/camera/accel/sample',
-            '/camera/camera/gyro/sample',
-            '/camera/camera/imu',
+            '/camera/imu',
             '/corrected/left/image_raw/compressed',
         ], output='screen'
     )

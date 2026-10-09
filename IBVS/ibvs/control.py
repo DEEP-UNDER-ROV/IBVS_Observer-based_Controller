@@ -16,8 +16,8 @@ class IBVS_Controller:
                 # Camera PID Sway - Heave - Surge - Pitch - Yaw - Roll
 
                   # Tau PID Surge - Sway - Heave - Roll - Pitch - Yaw
-        self.Kp = np.diag([0.8, 0.8, 0.8, 0.8, 0.8, 0.8]) 
-        self.Kd = np.diag([0.3, 0.3, 0.3, 0.3, 0.3, 0.3])
+        self.Kp = np.diag([0.6, 0.6, 0.6, 5.0, 5.0, 5.0]) 
+        self.Kd = np.diag([0.06, 0.06, 0.06, 0.5, 0.5, 0.5]) # --> 10% from Kp
         self.Ki = np.diag([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
 
         self.kz = 0.5
@@ -211,22 +211,22 @@ class IBVS_Controller:
             tau_P = - self.Kp @ np.linalg.solve(A, alpha.T @ e_pixel).reshape(6)
             tau_D = - self.Kd @ np.linalg.solve(A, alpha.T @ e_dot_hat).reshape(6)
             tau_L = - np.linalg.solve(A, alpha.T @ l_dot).reshape(6)
-            tau_gamma = np.linalg.solve(A, alpha.T @ gams).reshape(6)
+            tau_G = np.linalg.solve(A, alpha.T @ gams).reshape(6)
         else:
-            A = np.linalg.pinv(alpha)
-            tau_P = -self.Kp @ A @ e_pixel
-            tau_D = -self.Kd @ A @ e_dot_hat
-            tau_L = -A @ l_dot
-            tau_gamma = A @ alpha @ gamma
+            A_pinv = np.linalg.pinv(alpha)
+            tau_P = (- self.Kp @ A_pinv @ e_pixel).reshape(6)
+            tau_D = (- self.Kd @ A_pinv @ e_dot_hat).reshape(6)
+            tau_L = (- A_pinv @ l_dot).reshape(6)
+            tau_G = (A_pinv @ gams).reshape(6)
 
-        tau = tau_P + tau_D + tau_L + tau_gamma
+        tau = tau_P + tau_D + tau_L + tau_G
 
         if np.max(np.abs(e_pixel)) < dead_band:
             tau[:] = 0
 
         self.limit_force(tau)
 
-        return tau.reshape(6)
+        return tau.reshape(6), tau_P, tau_D, tau_L, tau_G
 
     # =========================================================
     def compute_control_tau_L_analytical(self, feature_hat, last_distance, nu_B_hat, distance, e_norm, e_pixel, dt, tag_lost=False,):

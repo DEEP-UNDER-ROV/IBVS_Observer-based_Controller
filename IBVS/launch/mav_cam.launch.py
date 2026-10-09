@@ -6,11 +6,11 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     vision_launch = ExecuteProcess(
-        cmd=['ros2', 'launch', 'rov_vision', 'uw_rs_apriltag_triangulation.launch.xml'],
+        cmd=['ros2', 'launch', 'rov_vision', 'uw_rs_apriltag_triangulation.launch.xml', 'enable_gyro:=true', 'enable_accel:=true', 'unite_imu_method:=2'],
         output='screen')
 
     disable_emitter = TimerAction(
-        period=3.0, actions=[ExecuteProcess(
+        period=5.0, actions=[ExecuteProcess(
             cmd=['ros2', 'param', 'set', '/camera/camera', 'depth_module.emitter_enabled', '0'],
             output='screen')])
 
@@ -20,6 +20,6 @@ def generate_launch_description():
 
     return LaunchDescription([
         vision_launch,
-        disable_emitter,
+        # disable_emitter,
         mavros_launch
     ])

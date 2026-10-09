@@ -11,7 +11,7 @@ R_imu = np.diag([
 
 dead_band = 5
 lambda_gain = 0.6
-mu = 0.2
+mu = 1e-3
 
 Z_DES = 1.5
 
