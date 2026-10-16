@@ -12,6 +12,8 @@ ros2 launch mavros apm.launch fcu_url:="serial:///dev/ttyACM0:921600" gcs_url:="
 
 3. Cmd IBVS Controller
 ros2 launch ibvs mav_cam.launch.py
+ros2 launch ibvs ibvs.launch.py
+
 ros2 run ibvs visualize
 ros2 run ibvs ibvs
 
@@ -20,6 +22,7 @@ ros2 run ibvs ibvs
 ros2 launch ibvs record_full.launch.py  # --> Full record for data analyze
 ros2 launch ibvs record_min.launch.py   # --> Min record for debug
 
+N.B. Selalu cek dl untuk topic camera RealSense, pastikan nama topic /camera/imu
 
 
 ros2 bag play your_bag \

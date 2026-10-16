@@ -31,21 +31,18 @@ class UKF_Estimator:
         # Process and Measurement noise matrices (Initialize as needed)
         # self.Q = np.eye(nx, dtype=np.float64) * 0.001
         self.R_imu = np.diag([
-            1.272148604270818**2,
-            1.272148604270818**2,
-            1.272148604270818**2,
-            0.0011478924062028428**2,
-            0.0011478924062028428**2,
-            0.0011478924062028428**2
-        ])
+            0.08995449047568972**2 * 100,
+            0.08995449047568972**2 * 100,
+            0.08995449047568972**2 * 100,
+            (8.116825044985731e-05)**2 * 100,
+            (8.116825044985731e-05)**2 * 100,
+            (8.116825044985731e-05)**2 * 100
+            ])
         self.R_camera = np.eye(self.n_dim, dtype=np.float64) * 1e-4
 
         self.sigma_u_px = float(0.334788)
         self.sigma_v_px = float(0.363501)
         self.sigma_Z = float(0.01)
-
-        self.sigma_x = self.sigma_u_px / FX
-        self.sigma_y = self.sigma_v_px / FY
 
         # Build R_camera for [u, v, Z] measurements.
         self.R_camera = np.zeros((self.n_dim, self.n_dim),dtype=np.float64)
@@ -155,10 +152,7 @@ class UKF_Estimator:
         self.ukf_x = np.zeros((self.ukf_state, 1), dtype=np.float64)
 
         P0 = np.zeros((self.ukf_state, self.ukf_state), dtype=np.float64)
-        if self.matrix_3d:
-            P0[self.idx_s, self.idx_s] = (np.eye(self.n_dim) * 1e-3)
-        else:
-            P0[self.idx_s, self.idx_s] = (np.eye(self.n_dim) * 1e-3)
+        P0[self.idx_s, self.idx_s] = (np.eye(self.n_dim) * 1e-3)
         P0[self.idx_vB, self.idx_vB] = (np.eye(3) * 1e-2)
         P0[self.idx_wB, self.idx_wB] = (np.eye(3) * 1e-2)
         P0[self.idx_bo, self.idx_bo] = (np.eye(3) * 1e-2)
@@ -179,12 +173,8 @@ class UKF_Estimator:
 
         q_Sc = np.tile(q_Sc, self.N)
 
-        if self.shared.tag_lost:
-            adaptive_q_vB = self.q_vB * 0.1  # Heavily dampen velocity uncertainty growth
-            adaptive_q_wB = self.q_wB * 0.1
-        else:
-            adaptive_q_vB = self.q_vB
-            adaptive_q_wB = self.q_wB
+        adaptive_q_vB = self.q_vB * 0.1 if self.shared.tag_lost else self.q_vB
+        adaptive_q_wB = self.q_wB * 0.1 if self.shared.tag_lost else self.q_wB
 
         Q[self.idx_s, self.idx_s] = np.diag(q_Sc)
         Q[self.idx_vB, self.idx_vB] = (np.eye(3) * adaptive_q_vB)
@@ -211,10 +201,7 @@ class UKF_Estimator:
         self.ukf_x = self.pack_state(s_C0, v_B0, w_B0, b_o0, b_g0, a_B0, b_a0)
 
         P0 = np.zeros((self.ukf_state, self.ukf_state), dtype=np.float64)
-        if self.matrix_3d:
-            P0[self.idx_s, self.idx_s] = (np.eye(self.n_dim) * 1e-3)
-        else:
-            P0[self.idx_s, self.idx_s] = (np.eye(self.n_dim) * 1e-3)
+        P0[self.idx_s, self.idx_s] = (np.eye(self.n_dim) * 1e-3)
         P0[self.idx_vB, self.idx_vB] = (np.eye(3) * 1e-2)
         P0[self.idx_wB, self.idx_wB] = (np.eye(3) * 1e-2)
         P0[self.idx_bo, self.idx_bo] = (np.eye(3) * 1e-2)
@@ -347,33 +334,32 @@ class UKF_Estimator:
         elif not self.matrix_3d and not self.matrix_delta:
             L_sigma = self.geometry.build_interaction_matrix(s_C, last_distance)
 
-        if tau is None:
-            tau = self.tau_hat
-
+        tau = self.tau_hat if tau is None else tau
         tau = np.asarray(tau, dtype=np.float64).reshape(6)
-        nu_dot_B = self.fossen_acceleration(nu_B, tau)
 
-        if self.shared.tag_lost:
-            sC_next = s_C
-        else:
-            sC_next = s_C + dt * (L_sigma @ nu_C).reshape(-1)
+        sC_next = s_C if self.shared.tag_lost else s_C + dt * (L_sigma @ nu_C).reshape(-1)
         
         if self.ukf_fossen:
-            nu_B_next = nu_B + dt * nu_dot_B
-            vB_next = nu_B_next[:3]
-            wB_next = nu_B_next[3:]
-            aB_next = nu_dot_B[:3]
-
+            nu_dot_B = self.fossen_acceleration(nu_B, tau)
+            a_fossen = nu_dot_B[:3]
+            alpha_fossen = nu_dot_B[3:]
+            
+            alpha_B = alpha_fossen + b_o
+            aB_next = a_fossen 
+            
         else:
-            vB_next = v_B + dt * a_B
-            wB_next = w_B + dt * b_o
+            alpha_B = b_o
             aB_next = a_B
 
-        bo_next = b_o
-        bg_next = b_g
-        ba_next = b_a
+        if self.shared.tag_lost:
+            damping_factor = 0.95 
+            vB_next = (v_B + dt * aB_next) * damping_factor
+            wB_next = (w_B + dt * alpha_B) * damping_factor
+        else:
+            vB_next = v_B + dt * aB_next
+            wB_next = w_B + dt * alpha_B
 
-        return self.pack_state(sC_next, vB_next, wB_next, bo_next, bg_next, aB_next, ba_next)
+        return self.pack_state(sC_next, vB_next, wB_next, b_o, b_g, aB_next, b_a)
     
     # =========================================================
     def ukf_predict(self, x, P, dt, last_distance=None, tau=None,):
