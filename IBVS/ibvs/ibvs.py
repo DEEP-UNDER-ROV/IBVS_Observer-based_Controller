@@ -148,7 +148,7 @@ class IBVSRCController(Node):
             f"with {'delta' if self.matrix_delta else 'depth'} variable. "
             f"Control using {'DLS' if self.control_dls else 'Non-DLS'} "
             f"of {'Stereo' if self.stereo_cam else 'non-stereo'} cam "
-            f"with UKF using {'Fossen' if self.ukf_fossen else 'IMU'} model."
+            f"with FCU UKF using {'Fossen' if self.ukf_fossen else 'IMU'} model."
         )
 
     # =========================================================
@@ -186,7 +186,7 @@ class IBVSRCController(Node):
         self.control_dt = control_dt
 
         distance_mean = self.latest_distance_mean
-        tau = self.controller.compute_control_tau_classic( 
+        tau, tau_P, tau_D, tau_L, tau_G = self.controller.compute_control_tau_classic( 
                 feature_hat = self.s_hat,
                 last_distance = self.shared.last_distance,
 
@@ -205,7 +205,7 @@ class IBVSRCController(Node):
         pwm = self.controller.compute_force_pwm(tau)
         self.current_pwm = pwm
         
-        # self.log_debug(tau, self.nu_B_hat, pwm)
+        self.log_debug(tau, self.nu_B_hat, pwm)
 
     # =========================================================
     def cb_fcu_att(self, msg):
@@ -263,7 +263,7 @@ class IBVSRCController(Node):
 
         self.last_imu_innovation = imu_innovation.copy()
         self.update_estimator()
-        # self.ukf_logging(source="imu", innovation=imu_innovation, K=K_imu, z=z_imu)
+        self.ukf_logging(source="imu", innovation=imu_innovation, K=K_imu, z=z_imu)
 
         self.publish_twist(self.nu_B_hat_pub, "nu_B_hat", msg.header.stamp, self.vB_hat, self.wB_hat)
         self.cb_control(dt)
@@ -323,7 +323,7 @@ class IBVSRCController(Node):
 
         self.last_camera_innovation = cam_innovation.copy()
         self.update_estimator()
-        # self.ukf_logging(source="camera", innovation=cam_innovation, K=K_cam, z=z_cam)
+        self.ukf_logging(source="camera", innovation=cam_innovation, K=K_cam, z=z_cam)
 
         self.latest_distance_mean = distance_mean
         self.e_norm_left = e_norm_left.copy()
@@ -333,6 +333,9 @@ class IBVSRCController(Node):
 
     # =========================================================
     def cb_slam_vel(self, msg):
+        if msg is None:
+            return
+        
         slam_vel_flu = np.array([
             msg.twist.linear.x,
             msg.twist.linear.y,

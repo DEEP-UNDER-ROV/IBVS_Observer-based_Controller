@@ -16,8 +16,8 @@ class IBVS_Controller:
                 # Camera PID Sway - Heave - Surge - Pitch - Yaw - Roll
 
                   # Tau PID Surge - Sway - Heave - Roll - Pitch - Yaw
-        self.Kp = np.diag([0.6, 0.6, 0.6, 5.0, 5.0, 5.0]) 
-        self.Kd = np.diag([0.06, 0.06, 0.06, 0.5, 0.5, 0.5]) # --> 10% from Kp
+        self.Kp = np.diag([0.6, 0.6, 0.6, 20.0, 20.0, 20.0]) 
+        self.Kd = np.diag([0.06, 0.06, 0.06, 2.0, 2.0, 2.0]) # --> 10% from Kp
         self.Ki = np.diag([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
 
         self.kz = 0.5
