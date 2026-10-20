@@ -14,35 +14,26 @@ The system estimates target pose directly from image features and generates PWM 
 ---
 
 ## System Architecture
-<img width="1813" height="432" alt="image" src="https://github.com/user-attachments/assets/9a4b908b-dc3b-4f65-9108-72da0144fe0c" />
+<img width="1410" height="461" alt="system_architecture" src="https://github.com/user-attachments/assets/b721e75f-17e7-4577-bab8-cabcfa49b3e6" />
+
 
 ## Dependencies
 
-* ROS2 Jazzy
-* Mavlink MAVROS
-* RealSense library
+* [ROS2 Jazzy](https://docs.ros.org/en/jazzy/Installation/Ubuntu-Install-Debs.html)
+* [Mavlink MAVROS](https://github.com/mavlink/mavros/blob/ros2/docs/installation.md)
+* [RealSense library](https://github.com/realsenseai/librealsense/blob/master/doc/installation.md)
+* [RealSense-ROS](https://github.com/realsenseai/realsense-ros?tab=readme-ov-file)
 * Python 3.10+
 * OpenCV
 * QGround Control
-* DU Perception AprilTag Triangulate Library <br>
-  https://github.com/DEEP-UNDER-ROV/DU_Perception_Apriltag_Triangulate
+* [DU Perception Library](https://github.com/DEEP-UNDER-ROV/DU_Perception_Apriltag_Triangulate)
 
 ---
 
 ## Installation
-Install required library for GStreamer
-```bash
-sudo apt install -y python3-opencv \
-  gstreamer1.0-plugins-base \
-  gstreamer1.0-plugins-good \
-  gstreamer1.0-plugins-bad \
-  gstreamer1.0-plugins-ugly \
-  gstreamer1.0-libav \
-  gstreamer1.0-tools
+Install required library for Python3 + GStreamer in [requirements.txt](https://github.com/DEEP-UNDER-ROV/IBVS_Observer-based_Controller/blob/FIFISH/requirements.txt)
 
-```
-
-Clone the DU Perception repository first into your ROS2 workspace, follow the guides on readme.md. <br>
+Clone the DU Perception repository first into your ROS2 workspace, follow the guides on [readme.md](https://github.com/DEEP-UNDER-ROV/DU_Perception_Apriltag_Triangulate/blob/main/README.md) <br>
 Clone IBVS repository into your ROS2 workspace;
 
 ```bash
@@ -64,17 +55,10 @@ source install/setup.bash
 ---
 
 ## Running
-Launch DU Perception AprilTag Triangulate
+Launch DU Perception + MavROS
 
 ```bash
-ros2 launch rov_vision uw_rs_apriltag_triangulation.launch.xml
-ros2 param set /camera/camera depth_module.emitter_enabled 0
-```
-
-Launch MAVROS node:
-
-```bash
-ros2 launch mavros apm.launch fcu_url:="serial:///dev/ttyACM0:921600" gcs_url:="udp:ssh_ip"
+ros2 launch ibvs mav_cam.launch.py
 ```
 
 
