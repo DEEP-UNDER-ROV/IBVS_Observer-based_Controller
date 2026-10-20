@@ -6,7 +6,7 @@ from launch_ros.actions import Node
 
 def generate_launch_description():
     vision_launch = ExecuteProcess(
-        cmd=['ros2', 'launch', 'rov_vision', 'uw_rs_apriltag_triangulation.launch.xml'],
+        cmd=['ros2', 'launch', 'rov_vision', 'uw_rs_apriltag_triangulation.launch.xml', 'enable_gyro:=true', 'enable_accel:=true', 'unite_imu_method:=2'],
         output='screen')
 
     disable_emitter = TimerAction(

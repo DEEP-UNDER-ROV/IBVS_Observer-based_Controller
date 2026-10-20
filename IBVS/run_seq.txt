@@ -1,5 +1,8 @@
 1. Cmd RealSense Driver
-ros2 launch rov_vision uw_rs_apriltag_triangulation.launch.xml # --> run apriltag detection
+ros2 launch rov_vision uw_rs_apriltag_triangulation.launch.xml \
+  enable_gyro:=true \
+  enable_accel:=true \
+  unite_imu_method:=2 # --> run apriltag detection
 ros2 param set /camera/camera depth_module.emitter_enabled 0   # --> set param laser off
 
 ros2 launch realsense2_camera rs_launch.py  # --> run rgb cam
@@ -11,8 +14,8 @@ ros2 launch mavros apm.launch fcu_url:="serial:///dev/ttyACM0:921600" gcs_url:="
 
 
 3. Cmd IBVS Controller
-ros2 launch ibvs mav_cam.launch.py
-ros2 launch ibvs ibvs.launch.py
+ros2 launch ibvs mav_cam.launch.py # --> launch MavROS + DU perception
+ros2 launch ibvs rgb_vis.launch.py # --> launch MavROS + RGB_Cam + visualize for field deployment
 
 ros2 run ibvs visualize
 ros2 run ibvs ibvs
@@ -33,6 +36,34 @@ ros2 bag play your_bag \
   /mavros/imu/data
 
 
-5. Command Deployment  P.S. untuk Rusdy, makanya klo gatau chat atau tanya sama yang predecessor atau pendahulu yang lebih paham -_-
-watch -n 1 sensors                  # --> Monitor sensor RPi
-ros2 launch ibvs rgb_vis.launch.py  # --> Run RGBcam + visualisation
+
+5. Dokumentasi Field Deployment untuk RGB cam stream  P.S. untuk Rusdy, makanya klo gatau chat atau tanya sama yang predecessor atau pendahulu yang lebih paham -_-
+# Terminal 1
+ros2 launch ibvs rgb_vis.launch.py      # --> Launch MavROS + RGB Cam
+
+# Terminal 2
+ros2 topic list                         # --> pastikan topic rgb /camera/color/image_raw/compressed ada
+ros2 launch ibvs record_rgb.launch.py   # --> Record compressed RGB untuk rewatch
+
+#Terminal 3
+watch -n 1 sensors                      # --> Monitor sensor RPi
+
+
+
+6. Dokumentasi Field Deployment Untuk pengambilan data IBVS + UKF
+# Terminal 1
+ros2 launch ibvs mav_cam.launch.py      # --> run DU perception + MavROS
+
+# Terminal 2
+ros2 run ibvs visualize                 # --> open QGC, klo not connected pastikan IP, untuk ganti IP address di ~/your_ws/src/IBVS/ibvs/parameter.py
+                                        # navigate QGC -> MavLink Inspector -> RAW_IMU -> Set rate ke 100hz
+
+# Terminal 3
+ros2 topic hz /mavros/imu/data_raw      # --> pastikan 100hz
+ros2 topic list                         # --> cek pastikan topic /camera/imu ada
+                                        # Checklist; /mavros/imu/data_raw di 100hz, topic /camera/imu ada, QGC stream data
+
+ros2 launch ibvs record_min.launch.py   # --> record data IBVS untuk debug setelahnya
+
+# Terminal 4
+ros2 run ibvs ibvs2                     # --> run IBVS UKF controller
