@@ -1,5 +1,5 @@
 import numpy as np
-from .parameter import *
+from ..parameter import *
 
 class Stereo_UKF_Estimator:
     def __init__(self, shared, nx, feature_dim, N=4,

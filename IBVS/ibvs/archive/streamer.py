@@ -13,7 +13,7 @@ from sensor_msgs.msg import Image, CompressedImage, CameraInfo
 from mavros_msgs.msg import OverrideRCIn, RCIn, RCOut
 from apriltag_msgs.msg import AprilTagDetectionArray
 
-from .parameter import *
+from ..parameter import *
 
 
 class VideoStreamer(Node):

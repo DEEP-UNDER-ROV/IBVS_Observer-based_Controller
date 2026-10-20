@@ -6,7 +6,7 @@ package_name = 'ibvs'
 
 setup(
     name=package_name,
-    version='1.3',
+    version='2.1',
     packages=[package_name],
     data_files=[
         ('share/ament_index/resource_index/packages',
@@ -19,18 +19,14 @@ setup(
     zip_safe=True,
     maintainer='SCHW4RZELISTE',
     maintainer_email='matthew.troy271@gmail.com',
-    description='Stereo-enhanced IBVS Control for U-ROV',
+    description='Stereo-enhanced IBVS Control with UKF Estimator for U-ROV',
     license='TODO: License declaration',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'stream = ibvs.streamer:main',
             'visualize = ibvs.visualisation:main',
-            'ibvs = ibvs.ibvs:main',
+            'ibvs1 = ibvs.ibvs1:main',
             'ibvs2 = ibvs.ibvs2:main',
-            'ibvs3 = ibvs.ibvs3:main',
-            'ibvs4 = ibvs.ibvs4:main',
-            'heave_trim = ibvs.heave_trim:main',
         ],
     },
 )

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3 -> no Camera IMU
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
@@ -28,8 +28,6 @@ class IBVSRCController(Node):
         # ---------------- Subscribers ----------------
         self.sub_corners = self.create_subscription(PolygonStamped, "/apriltag/corners", self.cb_corners, qos_profile_sensor_data)
         self.sub_detection = self.create_subscription(AprilTagDetectionArray, "/detection1", self.cb_detection_left, qos_profile_sensor_data)
-        # self.camera_gyro_sub = self.create_subscription(Imu, '/camera/camera/gyro/sample', self.cb_camera_gyro, 200)
-        # self.camera_accel_sub = self.create_subscription(Imu, '/camera/camera/accel/sample', self.cb_camera_accel, 100)
         self.fcu_att_sub = self.create_subscription(Imu, '/mavros/imu/data', self.cb_fcu_att, imu_qos)
         self.fcu_imu_sub = self.create_subscription(Imu, '/mavros/imu/data_raw', self.cb_fcu_imu, imu_qos)
         self.slam_vel_sub = self.create_subscription(TwistStamped, "/orb_slam3/velocity", self.cb_slam_vel, qos_profile_sensor_data)

@@ -1,5 +1,5 @@
 import numpy as np
-from .parameter import *
+from ..parameter import *
 
 class Stereo_IBVS_Control:
     def __init__(self, shared, N=4, use_3d_matrix_feature=True, use_dls=False, use_delta_matrix=False,):

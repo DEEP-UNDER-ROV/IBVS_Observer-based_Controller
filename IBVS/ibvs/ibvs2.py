@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3 -> with Camera IMU
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
