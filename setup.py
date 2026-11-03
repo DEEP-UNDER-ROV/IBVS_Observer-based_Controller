@@ -21,7 +21,6 @@ setup(
     maintainer_email='matthew.troy271@gmail.com',
     description='Stereo-enhanced IBVS Control with UKF Estimator for U-ROV',
     license='TODO: License declaration',
-    tests_require=['pytest'],
     entry_points={
         'console_scripts': [
             'visualize = ibvs.visualisation:main',
