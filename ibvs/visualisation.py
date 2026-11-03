@@ -421,6 +421,12 @@ class VideoStreamer(Node):
         publish_overlay=False,
         frame_id="camera_link"):
 
+        if frame is None or frame.size == 0:
+            return
+
+        if frame.dtype != np.uint8:
+            frame = frame.astype(np.uint8)
+
         if self.video_writer is not None:
             if self.video_writer.isOpened():
                 self.video_writer.write(frame)

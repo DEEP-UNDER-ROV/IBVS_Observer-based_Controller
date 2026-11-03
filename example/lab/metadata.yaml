@@ -2,55 +2,11 @@ rosbag2_bagfile_information:
   version: 9
   storage_identifier: mcap
   duration:
-    nanoseconds: 119680006800
+    nanoseconds: 53218017248
   starting_time:
-    nanoseconds_since_epoch: 1792521105222512861
-  message_count: 48360
+    nanoseconds_since_epoch: 1793688214398077893
+  message_count: 22491
   topics_with_message_count:
-    - topic_metadata:
-        name: /mavros/imu/data_raw
-        type: sensor_msgs/msg/Imu
-        serialization_format: cdr
-        offered_qos_profiles:
-          - history: unknown
-            depth: 0
-            reliability: reliable
-            durability: volatile
-            deadline:
-              sec: 9223372036
-              nsec: 854775807
-            lifespan:
-              sec: 9223372036
-              nsec: 854775807
-            liveliness: automatic
-            liveliness_lease_duration:
-              sec: 9223372036
-              nsec: 854775807
-            avoid_ros_namespace_conventions: false
-        type_description_hash: RIHS01_7d9a00ff131080897a5ec7e26e315954b8eae3353c3f995c55faf71574000b5b
-      message_count: 11970
-    - topic_metadata:
-        name: /detection2
-        type: apriltag_msgs/msg/AprilTagDetectionArray
-        serialization_format: cdr
-        offered_qos_profiles:
-          - history: unknown
-            depth: 0
-            reliability: reliable
-            durability: volatile
-            deadline:
-              sec: 9223372036
-              nsec: 854775807
-            lifespan:
-              sec: 9223372036
-              nsec: 854775807
-            liveliness: automatic
-            liveliness_lease_duration:
-              sec: 9223372036
-              nsec: 854775807
-            avoid_ros_namespace_conventions: false
-        type_description_hash: RIHS01_6016bfe513a7c741ccbdbc6419ed6c4cabfe5f11271a96555fbf26565c6b9826
-      message_count: 1573
     - topic_metadata:
         name: /detection1
         type: apriltag_msgs/msg/AprilTagDetectionArray
@@ -72,51 +28,7 @@ rosbag2_bagfile_information:
               nsec: 854775807
             avoid_ros_namespace_conventions: false
         type_description_hash: RIHS01_6016bfe513a7c741ccbdbc6419ed6c4cabfe5f11271a96555fbf26565c6b9826
-      message_count: 3545
-    - topic_metadata:
-        name: /mavros/imu/data
-        type: sensor_msgs/msg/Imu
-        serialization_format: cdr
-        offered_qos_profiles:
-          - history: unknown
-            depth: 0
-            reliability: reliable
-            durability: volatile
-            deadline:
-              sec: 9223372036
-              nsec: 854775807
-            lifespan:
-              sec: 9223372036
-              nsec: 854775807
-            liveliness: automatic
-            liveliness_lease_duration:
-              sec: 9223372036
-              nsec: 854775807
-            avoid_ros_namespace_conventions: false
-        type_description_hash: RIHS01_7d9a00ff131080897a5ec7e26e315954b8eae3353c3f995c55faf71574000b5b
-      message_count: 2394
-    - topic_metadata:
-        name: /camera/imu
-        type: sensor_msgs/msg/Imu
-        serialization_format: cdr
-        offered_qos_profiles:
-          - history: unknown
-            depth: 0
-            reliability: reliable
-            durability: volatile
-            deadline:
-              sec: 9223372036
-              nsec: 854775807
-            lifespan:
-              sec: 9223372036
-              nsec: 854775807
-            liveliness: automatic
-            liveliness_lease_duration:
-              sec: 9223372036
-              nsec: 854775807
-            avoid_ros_namespace_conventions: false
-        type_description_hash: RIHS01_7d9a00ff131080897a5ec7e26e315954b8eae3353c3f995c55faf71574000b5b
-      message_count: 23909
+      message_count: 1518
     - topic_metadata:
         name: /apriltag/corners
         type: geometry_msgs/msg/PolygonStamped
@@ -124,7 +36,7 @@ rosbag2_bagfile_information:
         offered_qos_profiles:
           - history: unknown
             depth: 0
-            reliability: reliable
+            reliability: best_effort
             durability: volatile
             deadline:
               sec: 9223372036
@@ -138,7 +50,95 @@ rosbag2_bagfile_information:
               nsec: 854775807
             avoid_ros_namespace_conventions: false
         type_description_hash: RIHS01_b7cf07932f1523d4b4088075945c1a0141f7cd21da87cc940fc61652e9138b46
-      message_count: 1424
+      message_count: 1514
+    - topic_metadata:
+        name: /detection2
+        type: apriltag_msgs/msg/AprilTagDetectionArray
+        serialization_format: cdr
+        offered_qos_profiles:
+          - history: unknown
+            depth: 0
+            reliability: reliable
+            durability: volatile
+            deadline:
+              sec: 9223372036
+              nsec: 854775807
+            lifespan:
+              sec: 9223372036
+              nsec: 854775807
+            liveliness: automatic
+            liveliness_lease_duration:
+              sec: 9223372036
+              nsec: 854775807
+            avoid_ros_namespace_conventions: false
+        type_description_hash: RIHS01_6016bfe513a7c741ccbdbc6419ed6c4cabfe5f11271a96555fbf26565c6b9826
+      message_count: 1537
+    - topic_metadata:
+        name: /mavros/imu/data_raw
+        type: sensor_msgs/msg/Imu
+        serialization_format: cdr
+        offered_qos_profiles:
+          - history: unknown
+            depth: 0
+            reliability: best_effort
+            durability: volatile
+            deadline:
+              sec: 9223372036
+              nsec: 854775807
+            lifespan:
+              sec: 9223372036
+              nsec: 854775807
+            liveliness: automatic
+            liveliness_lease_duration:
+              sec: 9223372036
+              nsec: 854775807
+            avoid_ros_namespace_conventions: false
+        type_description_hash: RIHS01_7d9a00ff131080897a5ec7e26e315954b8eae3353c3f995c55faf71574000b5b
+      message_count: 5112
+    - topic_metadata:
+        name: /mavros/imu/data
+        type: sensor_msgs/msg/Imu
+        serialization_format: cdr
+        offered_qos_profiles:
+          - history: unknown
+            depth: 0
+            reliability: best_effort
+            durability: volatile
+            deadline:
+              sec: 9223372036
+              nsec: 854775807
+            lifespan:
+              sec: 9223372036
+              nsec: 854775807
+            liveliness: automatic
+            liveliness_lease_duration:
+              sec: 9223372036
+              nsec: 854775807
+            avoid_ros_namespace_conventions: false
+        type_description_hash: RIHS01_7d9a00ff131080897a5ec7e26e315954b8eae3353c3f995c55faf71574000b5b
+      message_count: 1024
+    - topic_metadata:
+        name: /camera/imu
+        type: sensor_msgs/msg/Imu
+        serialization_format: cdr
+        offered_qos_profiles:
+          - history: unknown
+            depth: 0
+            reliability: best_effort
+            durability: volatile
+            deadline:
+              sec: 9223372036
+              nsec: 854775807
+            lifespan:
+              sec: 9223372036
+              nsec: 854775807
+            liveliness: automatic
+            liveliness_lease_duration:
+              sec: 9223372036
+              nsec: 854775807
+            avoid_ros_namespace_conventions: false
+        type_description_hash: RIHS01_7d9a00ff131080897a5ec7e26e315954b8eae3353c3f995c55faf71574000b5b
+      message_count: 10189
     - topic_metadata:
         name: /corrected/left/image_raw/compressed
         type: sensor_msgs/msg/CompressedImage
@@ -160,17 +160,17 @@ rosbag2_bagfile_information:
               nsec: 854775807
             avoid_ros_namespace_conventions: false
         type_description_hash: RIHS01_15640771531571185e2efc8a100baf923961a4d15d5569652e6cb6691e8e371a
-      message_count: 3545
+      message_count: 1597
   compression_format: ""
   compression_mode: ""
   relative_file_paths:
-    - rosbag_2026_10_21-01_31_44_0.mcap
+    - rosbag_2026_11_03-13_43_33_0.mcap
   files:
-    - path: rosbag_2026_10_21-01_31_44_0.mcap
+    - path: rosbag_2026_11_03-13_43_33_0.mcap
       starting_time:
-        nanoseconds_since_epoch: 1792521105222512861
+        nanoseconds_since_epoch: 1793688214398077893
       duration:
-        nanoseconds: 119680006800
-      message_count: 48360
+        nanoseconds: 53218017248
+      message_count: 22491
   custom_data: ~
   ros_distro: jazzy
