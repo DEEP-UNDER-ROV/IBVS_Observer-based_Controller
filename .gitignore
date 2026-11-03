@@ -2,7 +2,10 @@
 build/
 install/
 log/
+test/
+ibvs/archive
 .colcon/
+.vscode/
 
 # Python bytecode
 __pycache__/
