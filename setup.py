@@ -26,6 +26,7 @@ setup(
             'visualize = ibvs.visualisation:main',
             'ibvs1 = ibvs.ibvs1:main',
             'ibvs2 = ibvs.ibvs2:main',
+            'rc_trim = ibvs.rc_trim:main',
         ],
     },
 )
